@@ -6,12 +6,25 @@
 FROM maven:3.9.5-eclipse-temurin-17-alpine AS builder
 
 WORKDIR /build
-COPY pom.xml /build/parent-pom.xml
+
+COPY pom.xml /build/pom.xml
+COPY api-gateway/pom.xml /build/api-gateway/pom.xml
 COPY auth-service/pom.xml /build/auth-service/pom.xml
-RUN mkdir -p /build/auth-service/src/main/java
-RUN mvn -f parent-pom.xml dependency:go-offline -pl auth-service --no-transfer-progress || true
+COPY company-service/pom.xml /build/company-service/pom.xml
+COPY courier-service/pom.xml /build/courier-service/pom.xml
+COPY order-service/pom.xml /build/order-service/pom.xml
+
+RUN mkdir -p /build/api-gateway/src/main/java \
+    && mkdir -p /build/auth-service/src/main/java \
+    && mkdir -p /build/company-service/src/main/java \
+    && mkdir -p /build/courier-service/src/main/java \
+    && mkdir -p /build/order-service/src/main/java
+
+RUN mvn dependency:go-offline -pl auth-service --no-transfer-progress || true
+
 COPY auth-service/src /build/auth-service/src
-RUN mvn -f parent-pom.xml clean package -pl auth-service -DskipTests --no-transfer-progress
+
+RUN mvn clean package -pl auth-service -DskipTests --no-transfer-progress
 
 FROM eclipse-temurin:17-jre-alpine
 

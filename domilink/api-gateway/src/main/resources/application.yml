@@ -1,0 +1,77 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # Auth Service - rutas publicas (no requieren JWT)
+        - id: auth-service-public
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=0
+
+        # Company Service
+        - id: company-service
+          uri: http://company-service:8082
+          predicates:
+            - Path=/api/companies/**
+          filters:
+            - StripPrefix=0
+            - name: JwtAuthFilter
+
+        # Courier Service
+        - id: courier-service
+          uri: http://courier-service:8083
+          predicates:
+            - Path=/api/couriers/**
+          filters:
+            - StripPrefix=0
+            - name: JwtAuthFilter
+
+        # Order Service
+        - id: order-service
+          uri: http://order-service:8084
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - StripPrefix=0
+            - name: JwtAuthFilter
+
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: "*"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowed-headers: "*"
+            allow-credentials: false
+
+# JWT secret compartido (en produccion usar Secret Manager de GCP)
+jwt:
+  # NUNCA hardcodear en produccion — usar variable de entorno obligatoria
+  # Para desarrollo local: export JWT_SECRET=domilink-dev-secret-min-32-chars-here
+  secret: ${JWT_SECRET:domilink-dev-secret-min-32-chars-here-change-in-prod}
+  expiration: 86400000 # 24 horas en ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    com.domilink: DEBUG

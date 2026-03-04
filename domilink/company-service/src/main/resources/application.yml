@@ -1,0 +1,23 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: company-service
+
+firebase:
+  credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+  project-id: ${FIREBASE_PROJECT_ID:domilink-dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.domilink: DEBUG

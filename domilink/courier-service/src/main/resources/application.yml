@@ -1,0 +1,20 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: courier-service
+
+firebase:
+  credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+  project-id: ${FIREBASE_PROJECT_ID:domilink-dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.domilink: DEBUG

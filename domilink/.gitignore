@@ -1,0 +1,34 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+.eclipse/
+.project
+.classpath
+.settings/
+*.swp
+
+# Entorno
+.env
+*.env.local
+
+# Firebase credentials - NUNCA subir a git
+firebase-credentials.json
+*-service-account.json
+google-services.json
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db

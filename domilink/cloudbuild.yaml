@@ -1,0 +1,205 @@
+# ============================================================
+# DomiLink - Google Cloud Build
+# ============================================================
+# Alternativa a GitHub Actions: permite hacer el build y deploy
+# directamente desde Google Cloud Console (sin GitHub).
+#
+# USO:
+#   gcloud builds submit --config domilink/cloudbuild.yaml .
+#
+# VARIABLES REQUERIDAS (configurar en Cloud Build Triggers):
+#   _PROJECT_ID   -> ID del proyecto GCP
+#   _REGION       -> us-central1
+#   _JWT_SECRET   -> Clave JWT de produccion
+# ============================================================
+
+substitutions:
+  _REGION: us-central1
+  _REGISTRY: us-central1-docker.pkg.dev
+  _REPO: domilink
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+steps:
+  # ---- Compilar JARs de todos los microservicios ----
+  - name: 'maven:3.9.5-eclipse-temurin-17-alpine'
+    id: maven-build
+    entrypoint: mvn
+    args:
+      - clean
+      - package
+      - -DskipTests
+      - --no-transfer-progress
+      - -q
+    dir: domilink
+
+  # ---- Build y Push de imagenes Docker en paralelo ----
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-api-gateway
+    args:
+      - build
+      - -t
+      - '$_REGISTRY/$PROJECT_ID/$_REPO/api-gateway:$COMMIT_SHA'
+      - -f
+      - api-gateway/Dockerfile
+      - .
+    dir: domilink
+    waitFor: [maven-build]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-auth-service
+    args:
+      - build
+      - -t
+      - '$_REGISTRY/$PROJECT_ID/$_REPO/auth-service:$COMMIT_SHA'
+      - -f
+      - auth-service/Dockerfile
+      - .
+    dir: domilink
+    waitFor: [maven-build]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-company-service
+    args:
+      - build
+      - -t
+      - '$_REGISTRY/$PROJECT_ID/$_REPO/company-service:$COMMIT_SHA'
+      - -f
+      - company-service/Dockerfile
+      - .
+    dir: domilink
+    waitFor: [maven-build]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-courier-service
+    args:
+      - build
+      - -t
+      - '$_REGISTRY/$PROJECT_ID/$_REPO/courier-service:$COMMIT_SHA'
+      - -f
+      - courier-service/Dockerfile
+      - .
+    dir: domilink
+    waitFor: [maven-build]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build-order-service
+    args:
+      - build
+      - -t
+      - '$_REGISTRY/$PROJECT_ID/$_REPO/order-service:$COMMIT_SHA'
+      - -f
+      - order-service/Dockerfile
+      - .
+    dir: domilink
+    waitFor: [maven-build]
+
+  # ---- Push de imagenes ----
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGISTRY/$PROJECT_ID/$_REPO/api-gateway:$COMMIT_SHA']
+    waitFor: [build-api-gateway]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGISTRY/$PROJECT_ID/$_REPO/auth-service:$COMMIT_SHA']
+    waitFor: [build-auth-service]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGISTRY/$PROJECT_ID/$_REPO/company-service:$COMMIT_SHA']
+    waitFor: [build-company-service]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGISTRY/$PROJECT_ID/$_REPO/courier-service:$COMMIT_SHA']
+    waitFor: [build-courier-service]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGISTRY/$PROJECT_ID/$_REPO/order-service:$COMMIT_SHA']
+    waitFor: [build-order-service]
+
+  # ---- Deploy en Cloud Run ----
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: deploy-auth
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - domilink-auth-service
+      - --image=$_REGISTRY/$PROJECT_ID/$_REPO/auth-service:$COMMIT_SHA
+      - --region=$_REGION
+      - --port=8081
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=512Mi
+      - --allow-unauthenticated
+      - --set-env-vars=JWT_SECRET=$$JWT_SECRET,FIREBASE_PROJECT_ID=domilink-prod
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: deploy-company
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - domilink-company-service
+      - --image=$_REGISTRY/$PROJECT_ID/$_REPO/company-service:$COMMIT_SHA
+      - --region=$_REGION
+      - --port=8082
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=256Mi
+      - --allow-unauthenticated
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: deploy-courier
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - domilink-courier-service
+      - --image=$_REGISTRY/$PROJECT_ID/$_REPO/courier-service:$COMMIT_SHA
+      - --region=$_REGION
+      - --port=8083
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=256Mi
+      - --allow-unauthenticated
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: deploy-order
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - domilink-order-service
+      - --image=$_REGISTRY/$PROJECT_ID/$_REPO/order-service:$COMMIT_SHA
+      - --region=$_REGION
+      - --port=8084
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=512Mi
+      - --allow-unauthenticated
+      - --set-env-vars=PRICING_BASE_PRICE=3000.0,PRICING_PRICE_PER_KM=1500.0,PRICING_MINIMUM_PRICE=5000.0,PRICING_MAXIMUM_PRICE=80000.0
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: deploy-gateway
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - domilink-api-gateway
+      - --image=$_REGISTRY/$PROJECT_ID/$_REPO/api-gateway:$COMMIT_SHA
+      - --region=$_REGION
+      - --port=8080
+      - --min-instances=0
+      - --max-instances=5
+      - --memory=512Mi
+      - --allow-unauthenticated
+      - --set-env-vars=JWT_SECRET=$$JWT_SECRET
+    waitFor: [deploy-auth, deploy-company, deploy-courier, deploy-order]
+
+images:
+  - '$_REGISTRY/$PROJECT_ID/$_REPO/api-gateway:$COMMIT_SHA'
+  - '$_REGISTRY/$PROJECT_ID/$_REPO/auth-service:$COMMIT_SHA'
+  - '$_REGISTRY/$PROJECT_ID/$_REPO/company-service:$COMMIT_SHA'
+  - '$_REGISTRY/$PROJECT_ID/$_REPO/courier-service:$COMMIT_SHA'
+  - '$_REGISTRY/$PROJECT_ID/$_REPO/order-service:$COMMIT_SHA'

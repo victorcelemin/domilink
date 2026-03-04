@@ -1,0 +1,46 @@
+# ============================================================
+# DomiLink - .gitignore raiz
+# ============================================================
+
+# ---- Java / Maven ----
+**/target/
+**/*.class
+**/*.jar
+**/*.war
+**/.mvn/wrapper/maven-wrapper.jar
+
+# ---- Node / Expo ----
+domilink-mobile/node_modules/
+domilink-mobile/dist/
+domilink-mobile/.expo/
+domilink-mobile/.env
+domilink-mobile/.env.local
+
+# ---- Credenciales / Secretos ----
+**/.env
+**/*.env.local
+**/firebase-credentials.json
+**/*-service-account.json
+**/google-services.json
+**/GoogleService-Info.plist
+/tmp/
+
+# ---- Logs ----
+**/*.log
+**/logs/
+build-*.log
+
+# ---- IDE / OS ----
+**/.idea/
+**/*.iml
+**/.settings/
+**/.project
+**/.classpath
+**/.DS_Store
+**/Thumbs.db
+
+# ---- Docker ----
+**/.docker/
+
+# ---- Build script output ----
+nul

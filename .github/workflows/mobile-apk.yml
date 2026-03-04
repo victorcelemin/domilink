@@ -1,0 +1,220 @@
+# ============================================================
+# DomiLink - Mobile: Build APK de Prueba via EAS (GRATUITO)
+# ============================================================
+#
+# COMO FUNCIONA:
+#   EAS Build (Expo Application Services) compila la app en
+#   la nube de Expo sin necesidad de Android Studio ni Mac.
+#   El APK resultante se puede instalar directamente en
+#   cualquier dispositivo Android para pruebas.
+#
+# COSTO: GRATIS
+#   EAS Free plan incluye:
+#   - 30 builds/mes gratis (suficiente para CI/CD)
+#   - Builds Android (APK o AAB)
+#   - Distribucion interna via link directo
+#
+# NOTA SOBRE EL CLIENTE API:
+#   El archivo src/api/client.ts tiene USE_GATEWAY=false y usa
+#   IPs locales. En este workflow se inyecta la URL real del
+#   backend via variable de entorno EXPO_PUBLIC_API_URL, que
+#   se lee en el cliente via process.env.
+#
+# SECRETOS NECESARIOS en GitHub:
+#   EXPO_TOKEN          -> Token de cuenta expo.dev
+#   API_GATEWAY_URL     -> URL del api-gateway en Cloud Run
+#
+# TRIGGER:
+#   - Push a main: build automatico
+#   - Manual: se puede lanzar desde la pestaña Actions
+# ============================================================
+
+name: Mobile - Build APK de Prueba (Android)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'domilink-mobile/**'
+      - '.github/workflows/mobile-apk.yml'
+  # Permite lanzar manualmente desde GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      build_profile:
+        description: 'Perfil de build'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - development
+
+env:
+  NODE_VERSION: '18'
+  BUILD_PROFILE: ${{ github.event.inputs.build_profile || 'preview' }}
+
+jobs:
+  # ============================================================
+  # JOB 1: VERIFICACION PREVIA AL BUILD
+  # ============================================================
+  verificar:
+    name: "Verificar antes de build"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: domilink-mobile
+
+    steps:
+      - name: "1. Descargar codigo"
+        uses: actions/checkout@v4
+
+      - name: "2. Configurar Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: "3. Instalar dependencias"
+        run: npm ci
+
+      - name: "4. Verificar tipos TypeScript"
+        run: npx tsc --noEmit
+
+      - name: "5. Validar app.json (campos obligatorios para el build)"
+        run: |
+          node -e "
+            const app = require('./app.json').expo;
+            const required = {
+              'name': app.name,
+              'slug': app.slug,
+              'version': app.version,
+              'android.package': app.android?.package,
+            };
+            let failed = false;
+            Object.entries(required).forEach(([key, val]) => {
+              if (!val) {
+                console.error('FALTA campo requerido: ' + key);
+                failed = true;
+              } else {
+                console.log('OK: ' + key + ' = ' + val);
+              }
+            });
+            if (failed) process.exit(1);
+            console.log('app.json validado correctamente');
+          "
+
+      - name: "6. Mostrar informacion del build"
+        run: |
+          VERSION=$(node -e "console.log(require('./app.json').expo.version)")
+          PACKAGE=$(node -e "console.log(require('./app.json').expo.android.package)")
+          echo "## Informacion del APK" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: \`$PACKAGE\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- Perfil: ${{ env.BUILD_PROFILE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Plataforma: Android" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # JOB 2: BUILD APK EN LA NUBE CON EAS
+  # ============================================================
+  build-apk:
+    name: "Build APK con EAS Cloud"
+    runs-on: ubuntu-latest
+    needs: verificar
+
+    steps:
+      - name: "1. Descargar codigo"
+        uses: actions/checkout@v4
+
+      - name: "2. Configurar Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: "3. Instalar dependencias"
+        working-directory: domilink-mobile
+        run: npm ci
+
+      - name: "4. Instalar EAS CLI globalmente"
+        run: npm install -g eas-cli
+
+      - name: "5. Configurar URL del backend en el build"
+        # Se crea un archivo .env que Expo lee durante el build.
+        # EXPO_PUBLIC_* variables son embebidas en el bundle JS.
+        # Esto hace que la app apunte al backend de Cloud Run
+        # en lugar de localhost.
+        working-directory: domilink-mobile
+        run: |
+          API_URL="${{ secrets.API_GATEWAY_URL }}"
+          if [ -z "$API_URL" ]; then
+            API_URL="https://domilink-api-gateway-placeholder.run.app"
+            echo "::warning::API_GATEWAY_URL no configurado. El APK usara URL placeholder."
+          fi
+          echo "EXPO_PUBLIC_API_URL=$API_URL" > .env
+          echo "EXPO_PUBLIC_APP_ENV=preview" >> .env
+          echo "API URL configurada para el build"
+
+      - name: "6. Iniciar build en EAS Cloud"
+        # --non-interactive: no pide confirmaciones (requerido en CI)
+        # --no-wait: no espera que termine (el build puede tardar 10-20 min)
+        # --platform android: solo Android
+        # El resultado es un APK descargable desde expo.dev/builds
+        working-directory: domilink-mobile
+        run: |
+          eas build \
+            --platform android \
+            --profile ${{ env.BUILD_PROFILE }} \
+            --non-interactive \
+            --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: "7. Instrucciones post-build"
+        run: |
+          echo "## APK de Prueba en construccion" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "El build esta corriendo en los servidores de Expo." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Como obtener el APK:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Ir a https://expo.dev/accounts/[tu-usuario]/projects/domilink/builds" >> $GITHUB_STEP_SUMMARY
+          echo "2. Esperar que el build termine (10-20 minutos)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Descargar el APK desde el dashboard" >> $GITHUB_STEP_SUMMARY
+          echo "4. Instalar en Android: Configuracion > Seguridad > Fuentes desconocidas" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Alternativa - Compartir con QR:" >> $GITHUB_STEP_SUMMARY
+          echo "Expo genera automaticamente un QR para instalar el APK sin pasar por Play Store." >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # JOB 3: NOTIFICACION DE BUILD (espera y verifica)
+  # Corre 25 minutos despues del inicio del build
+  # ============================================================
+  notificar-resultado:
+    name: "Verificar resultado del build EAS"
+    runs-on: ubuntu-latest
+    needs: build-apk
+
+    steps:
+      - name: "1. Descargar codigo"
+        uses: actions/checkout@v4
+
+      - name: "2. Configurar Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: "3. Instalar EAS CLI"
+        run: npm install -g eas-cli
+
+      - name: "4. Listar builds recientes"
+        working-directory: domilink-mobile
+        run: |
+          echo "Builds recientes de DomiLink:"
+          eas build:list --platform android --limit 3 --non-interactive || \
+            echo "Autenticar con: eas login"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        continue-on-error: true

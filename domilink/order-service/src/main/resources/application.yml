@@ -1,0 +1,38 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: order-service
+
+firebase:
+  credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+  project-id: ${FIREBASE_PROJECT_ID:domilink-dev}
+
+# URLs internas de otros servicios (en Docker/Cloud Run usar nombres de servicio)
+services:
+  courier-service-url: ${COURIER_SERVICE_URL:http://courier-service:8083}
+  company-service-url: ${COMPANY_SERVICE_URL:http://company-service:8082}
+
+# Configuracion de precios
+pricing:
+  base-price: 3000.0          # COP - precio base fijo
+  price-per-km: 1500.0        # COP por kilometro
+  minimum-price: 5000.0       # COP - precio minimo
+  maximum-price: 80000.0      # COP - precio maximo (seguridad)
+  # Recargos por tipo de vehiculo (multiplicadores)
+  vehicle-multiplier:
+    motorcycle: 1.0
+    bicycle: 0.8              # Bicicleta es mas economico
+    walking: 0.6              # A pie es mas economico
+    car: 1.4                  # Carro tiene recargo
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.domilink: DEBUG

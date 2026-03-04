@@ -1,0 +1,33 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:domilink-super-secret-key-2024-change-in-production-minimum-256-bits}
+  expiration: 86400000      # 24 horas en ms
+  refresh-expiration: 604800000  # 7 dias en ms
+
+# Firebase Configuration
+firebase:
+  # En produccion: montar el archivo desde Secret Manager o variable de entorno
+  # Dejar vacio para modo de desarrollo sin Firebase
+  credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+  project-id: ${FIREBASE_PROJECT_ID:domilink-dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.domilink: DEBUG
+    org.springframework.security: DEBUG

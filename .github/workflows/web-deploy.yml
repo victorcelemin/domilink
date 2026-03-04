@@ -1,0 +1,207 @@
+# ============================================================
+# DomiLink - Web: Build Expo + Deploy en Vercel (GRATUITO)
+# ============================================================
+#
+# COMO FUNCIONA:
+#   1. Instala dependencias de Node con cache
+#   2. Verifica TypeScript (detecta errores de tipos)
+#   3. Exporta la app como sitio estatico con `expo export --platform web`
+#      Esto genera un directorio `dist/` con HTML + JS + assets
+#   4. Sube `dist/` a Vercel (Hobby plan = gratis para siempre)
+#
+# COSTO: GRATIS
+#   Vercel Hobby plan incluye:
+#   - Deploys ilimitados
+#   - HTTPS automatico
+#   - CDN global
+#   - URL tipo: https://domilink-web.vercel.app
+#
+# SECRETOS NECESARIOS en GitHub:
+#   VERCEL_TOKEN        -> Token de Vercel (vercel.com > Settings > Tokens)
+#   VERCEL_ORG_ID       -> ID de la org (lo muestra `vercel link`)
+#   VERCEL_PROJECT_ID   -> ID del proyecto (lo muestra `vercel link`)
+#   API_GATEWAY_URL     -> URL del api-gateway en Cloud Run (del deploy backend)
+# ============================================================
+
+name: Web - Build y Deploy en Vercel
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'domilink-mobile/**'
+      - '.github/workflows/web-deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'domilink-mobile/**'
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # ============================================================
+  # JOB 1: VERIFICAR TYPESCRIPT
+  # Detecta errores de tipos antes de intentar el build
+  # ============================================================
+  verificar-typescript:
+    name: "Verificar TypeScript"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: domilink-mobile
+
+    steps:
+      - name: "1. Descargar codigo"
+        uses: actions/checkout@v4
+
+      - name: "2. Configurar Node.js 18 con cache npm"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: "3. Instalar dependencias (npm ci = instalacion limpia y reproducible)"
+        run: npm ci
+
+      - name: "4. Verificar tipos con TypeScript"
+        # tsc --noEmit compila sin generar archivos, solo reporta errores
+        run: npx tsc --noEmit
+
+      - name: "5. Publicar resultado"
+        if: always()
+        run: |
+          echo "## Verificacion TypeScript" >> $GITHUB_STEP_SUMMARY
+          echo "- Pantallas: auth/ company/ courier/" >> $GITHUB_STEP_SUMMARY
+          echo "- APIs: authApi, companyApi, courierApi, orderApi" >> $GITHUB_STEP_SUMMARY
+          echo "- Expo SDK: $(node -e "console.log(require('./package.json').dependencies.expo)")" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # JOB 2: BUILD WEB
+  # Exporta la app Expo como sitio web estatico
+  # ============================================================
+  build-web:
+    name: "Build Expo Web"
+    runs-on: ubuntu-latest
+    needs: verificar-typescript
+    defaults:
+      run:
+        working-directory: domilink-mobile
+
+    steps:
+      - name: "1. Descargar codigo"
+        uses: actions/checkout@v4
+
+      - name: "2. Configurar Node.js 18"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: "3. Instalar dependencias"
+        run: npm ci
+
+      - name: "4. Inyectar URL del API Gateway como variable de entorno"
+        # EXPO_PUBLIC_* es el prefijo que Expo usa para variables accesibles
+        # en el codigo cliente. Se reemplaza en build time (no en runtime).
+        # Si el secreto no existe, usa un fallback para no romper el build.
+        run: |
+          API_URL="${{ secrets.API_GATEWAY_URL }}"
+          if [ -z "$API_URL" ]; then
+            API_URL="https://domilink-api-gateway-placeholder.run.app"
+            echo "::warning::API_GATEWAY_URL no configurado. Usando placeholder."
+          fi
+          echo "EXPO_PUBLIC_API_URL=$API_URL" > .env
+          echo "EXPO_PUBLIC_APP_ENV=production" >> .env
+          echo "Variable API_URL configurada (${#API_URL} chars)"
+
+      - name: "5. Exportar como sitio web estatico"
+        # expo export --platform web genera dist/index.html + JS bundle + assets
+        # Es equivalente a un build de Create React App pero para Expo
+        run: npx expo export --platform web --output-dir dist
+        env:
+          # Necesario para evitar prompts interactivos de Expo CLI
+          CI: true
+          EXPO_PUBLIC_API_URL: ${{ secrets.API_GATEWAY_URL || 'https://placeholder.run.app' }}
+          EXPO_PUBLIC_APP_ENV: production
+
+      - name: "6. Verificar que el build genero archivos"
+        run: |
+          if [ ! -f "dist/index.html" ]; then
+            echo "::error::El build fallo: dist/index.html no existe"
+            exit 1
+          fi
+          FILE_COUNT=$(find dist -type f | wc -l)
+          DIST_SIZE=$(du -sh dist/ | cut -f1)
+          echo "Build exitoso: $FILE_COUNT archivos, $DIST_SIZE total"
+          echo "## Build Web Exitoso" >> $GITHUB_STEP_SUMMARY
+          echo "- Archivos: $FILE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Tamaño: $DIST_SIZE" >> $GITHUB_STEP_SUMMARY
+
+      - name: "7. Subir build como artefacto de GitHub"
+        # Guarda el build para que el job de deploy lo descargue
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: domilink-mobile/dist/
+          retention-days: 3
+
+  # ============================================================
+  # JOB 3: DEPLOY EN VERCEL
+  # Sube la carpeta dist/ a Vercel via CLI
+  # ============================================================
+  deploy-vercel:
+    name: "Deploy en Vercel"
+    runs-on: ubuntu-latest
+    needs: build-web
+    # Solo deploya en push, no en PRs (para no gastar tokens)
+    if: github.event_name == 'push'
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production-web' || 'preview-web' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: "1. Descargar el build del job anterior"
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+
+      - name: "2. Instalar Vercel CLI"
+        run: npm install -g vercel@latest
+
+      - name: "3. Deploy en Vercel"
+        id: deploy
+        run: |
+          # --prod: deploy de produccion (solo si es rama main)
+          # Sin --prod: crea una URL de preview unica
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            PROD_FLAG="--prod"
+            echo "Desplegando en PRODUCCION..."
+          else
+            PROD_FLAG=""
+            echo "Desplegando PREVIEW (rama: ${{ github.ref_name }})..."
+          fi
+
+          # Vercel CLI devuelve la URL en la ultima linea
+          DEPLOY_URL=$(vercel deploy dist/ \
+            $PROD_FLAG \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --yes \
+            2>&1 | tail -1)
+
+          echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $DEPLOY_URL"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: "4. Publicar resultado"
+        run: |
+          echo "## Deploy Web - DomiLink" >> $GITHUB_STEP_SUMMARY
+          echo "- Plataforma: Vercel (Hobby - Gratuito)" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Rama: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

@@ -170,13 +170,28 @@ jobs:
           path: dist/
 
       - name: "2. Instalar Vercel CLI"
-        run: npm install -g vercel@latest
+        run: npm install -g vercel@37
 
-      - name: "3. Deploy en Vercel"
+      - name: "3. Crear configuracion de Vercel para build estatico"
+        run: |
+          # Crear .vercel/project.json para vincular al proyecto correcto
+          mkdir -p dist/.vercel
+          echo '{"projectId":"${{ secrets.VERCEL_PROJECT_ID }}","orgId":"${{ secrets.VERCEL_ORG_ID }}"}' > dist/.vercel/project.json
+          # Crear vercel.json dentro del dist para indicar que es un sitio estatico
+          cat > dist/vercel.json << 'VEOF'
+          {
+            "version": 2,
+            "rewrites": [{ "source": "/((?!_expo|static|favicon.ico|assets).*)", "destination": "/index.html" }],
+            "headers": [
+              { "source": "/_expo/static/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+              { "source": "/(.*)", "headers": [{ "key": "X-Content-Type-Options", "value": "nosniff" }] }
+            ]
+          }
+          VEOF
+
+      - name: "4. Deploy en Vercel como sitio estatico"
         id: deploy
         run: |
-          # --prod: deploy de produccion (solo si es rama main)
-          # Sin --prod: crea una URL de preview unica
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             PROD_FLAG="--prod"
             echo "Desplegando en PRODUCCION..."
@@ -185,12 +200,13 @@ jobs:
             echo "Desplegando PREVIEW (rama: ${{ github.ref_name }})..."
           fi
 
-          # Vercel CLI devuelve la URL en la ultima linea
+          # --prebuilt: indica que el build ya esta listo, no re-construir
           DEPLOY_URL=$(vercel deploy dist/ \
             $PROD_FLAG \
+            --prebuilt \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --yes \
-            2>&1 | tail -1)
+            2>&1 | grep -E '^https://' | tail -1)
 
           echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
           echo "Deployed to: $DEPLOY_URL"
@@ -198,7 +214,7 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: "4. Publicar resultado"
+      - name: "5. Publicar resultado"
         run: |
           echo "## Deploy Web - DomiLink" >> $GITHUB_STEP_SUMMARY
           echo "- Plataforma: Vercel (Hobby - Gratuito)" >> $GITHUB_STEP_SUMMARY

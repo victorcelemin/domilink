@@ -8,8 +8,9 @@ spring:
     gateway:
       routes:
         # Auth Service - rutas publicas (no requieren JWT)
+        # URI configurable via AUTH_SERVICE_URL (Cloud Run) o http://auth-service:8081 (local)
         - id: auth-service-public
-          uri: http://auth-service:8081
+          uri: ${AUTH_SERVICE_URL:http://auth-service:8081}
           predicates:
             - Path=/api/auth/**
           filters:
@@ -17,7 +18,7 @@ spring:
 
         # Company Service
         - id: company-service
-          uri: http://company-service:8082
+          uri: ${COMPANY_SERVICE_URL:http://company-service:8082}
           predicates:
             - Path=/api/companies/**
           filters:
@@ -26,7 +27,7 @@ spring:
 
         # Courier Service
         - id: courier-service
-          uri: http://courier-service:8083
+          uri: ${COURIER_SERVICE_URL:http://courier-service:8083}
           predicates:
             - Path=/api/couriers/**
           filters:
@@ -35,7 +36,7 @@ spring:
 
         # Order Service
         - id: order-service
-          uri: http://order-service:8084
+          uri: ${ORDER_SERVICE_URL:http://order-service:8084}
           predicates:
             - Path=/api/orders/**
           filters:
@@ -57,7 +58,7 @@ spring:
 
 # JWT secret compartido (en produccion usar Secret Manager de GCP)
 jwt:
-  # NUNCA hardcodear en produccion — usar variable de entorno obligatoria
+  # NUNCA hardcodear en produccion - usar variable de entorno obligatoria
   # Para desarrollo local: export JWT_SECRET=domilink-dev-secret-min-32-chars-here
   secret: ${JWT_SECRET:domilink-dev-secret-min-32-chars-here-change-in-prod}
   expiration: 86400000 # 24 horas en ms

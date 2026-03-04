@@ -217,10 +217,10 @@ export const OrderDetailScreen = ({ route, navigation }: any) => {
             <Text style={styles.priceLabel}>Precio del domicilio</Text>
             <Text style={styles.priceValue}>{formatCOP(order.finalPrice)}</Text>
           </View>
-          {isBase && order.baseAmount > 0 && (
+          {isBase && (order.baseAmount ?? 0) > 0 && (
             <View style={styles.priceRow}>
               <Text style={[styles.priceLabel, { color: Colors.paymentBase }]}>Base que lleva domiciliario</Text>
-              <Text style={[styles.priceValue, { color: Colors.paymentBase }]}>{formatCOP(order.baseAmount)}</Text>
+              <Text style={[styles.priceValue, { color: Colors.paymentBase }]}>{formatCOP(order.baseAmount ?? 0)}</Text>
             </View>
           )}
           {order.vehicleTypeUsed && (

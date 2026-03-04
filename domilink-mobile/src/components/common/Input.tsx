@@ -54,9 +54,9 @@ export const Input: React.FC<InputProps> = ({
       <View style={[
         styles.inputWrapper,
         { borderColor },
-        focused && styles.focused,
-        !editable && styles.disabled,
-        error && styles.errorWrapper,
+        focused ? styles.focused : undefined,
+        !editable ? styles.disabled : undefined,
+        error ? styles.errorWrapper : undefined,
       ]}>
         {leftIcon && (
           <Ionicons

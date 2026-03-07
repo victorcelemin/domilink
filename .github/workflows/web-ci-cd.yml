@@ -157,18 +157,11 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.API_BASE_URL }}
+          EXPO_PUBLIC_APP_ENV: production
         run: |
-          # vercel pull descarga la configuracion del proyecto (incluyendo variables de entorno)
           vercel pull --yes --environment=production --token=$VERCEL_TOKEN
-
-          # vercel build usa el vercel.json local para configurar el proyecto.
-          # Como dist/ ya existe y outputDirectory=dist, Vercel lo detecta.
-          # SKIP_INSTALL=1 evita que Vercel re-instale dependencias.
-          vercel build --prod --token=$VERCEL_TOKEN \
-            --build-env EXPO_PUBLIC_API_URL=${{ secrets.API_BASE_URL }} \
-            --build-env EXPO_PUBLIC_APP_ENV=production
-
-          # vercel deploy --prebuilt sube el .vercel/output generado por build
+          vercel build --prod --token=$VERCEL_TOKEN
           URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN 2>&1 \
             | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
           echo "url=$URL" >> $GITHUB_OUTPUT
@@ -182,11 +175,11 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.API_BASE_URL }}
+          EXPO_PUBLIC_APP_ENV: production
         run: |
           vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
-          vercel build --token=$VERCEL_TOKEN \
-            --build-env EXPO_PUBLIC_API_URL=${{ secrets.API_BASE_URL }} \
-            --build-env EXPO_PUBLIC_APP_ENV=production
+          vercel build --token=$VERCEL_TOKEN
           URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN 2>&1 \
             | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
           echo "url=$URL" >> $GITHUB_OUTPUT

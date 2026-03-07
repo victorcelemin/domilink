@@ -1,28 +1,13 @@
 package com.domilink.courier.config;
 
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
-
-import java.util.List;
-
-@Configuration
+/**
+ * CORS is handled exclusively by the API Gateway (Spring Cloud Gateway globalcors).
+ * This file is intentionally empty — do NOT add a CorsFilter bean here.
+ *
+ * Adding a CorsFilter in microservices causes duplicate Access-Control-Allow-Origin
+ * headers when the gateway and the service both append the header, which browsers
+ * reject as invalid.
+ */
 public class CorsConfig {
-
-    @Bean
-    public CorsFilter corsFilter() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setExposedHeaders(List.of("Authorization"));
-        config.setAllowCredentials(false);
-        config.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return new CorsFilter(source);
-    }
+    // No beans — CORS is gateway-only
 }

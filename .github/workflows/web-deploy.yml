@@ -70,7 +70,7 @@ jobs:
           echo "API configurado: $API_URL"
 
       - name: "6. Build Expo Web (sitio estatico)"
-        run: npx expo export --platform web --output-dir dist
+        run: npx expo export --platform web --output-dir dist --clear
         env:
           CI: true
           EXPO_PUBLIC_API_URL: ${{ secrets.API_GATEWAY_URL }}
@@ -91,7 +91,7 @@ jobs:
         run: npm install -g vercel@latest
         working-directory: .
 
-      - name: "9. Deploy en Vercel"
+      - name: "9. Preparar Vercel Build Output y Deploy"
         if: github.event_name == 'push'
         id: deploy
         run: |
@@ -103,20 +103,61 @@ jobs:
             echo "Desplegando PREVIEW..."
           fi
 
+          # Paso A: vincular el proyecto de Vercel (no ejecuta ningun build).
           vercel pull \
             --yes \
             --environment=production \
             --token="${{ secrets.VERCEL_TOKEN }}"
 
-          vercel build \
-            --prod \
-            --token="${{ secrets.VERCEL_TOKEN }}"
+          # Paso B: construir el Vercel Build Output manualmente.
+          #
+          # Vercel Build Output API v3 espera esta estructura:
+          #   .vercel/output/
+          #     config.json          <- routes, headers, rewrites
+          #     static/              <- archivos estaticos del sitio
+          #
+          # De este modo --prebuilt sube exactamente lo que expo export generó
+          # (con metro.config.js y el stub CJS de reanimated) sin que Vercel
+          # vuelva a ejecutar npx expo export en su infra.
+          mkdir -p .vercel/output/static
 
+          # Copiar el sitio estatico generado por expo export
+          cp -r dist/. .vercel/output/static/
+
+          # Generar config.json con rewrites y headers de vercel.json
+          # Los rewrites se traducen a routes en el Build Output API.
+          node -e "
+          const vercelJson = require('./vercel.json');
+          const routes = [];
+
+          // Headers
+          if (vercelJson.headers) {
+            for (const h of vercelJson.headers) {
+              routes.push({ src: h.source, headers: Object.fromEntries(h.headers.map(x=>[x.key,x.value])) });
+            }
+          }
+
+          // Rewrites (proxy API y SPA fallback)
+          if (vercelJson.rewrites) {
+            for (const r of vercelJson.rewrites) {
+              routes.push({ src: r.source, dest: r.destination });
+            }
+          }
+
+          const config = { version: 3, routes };
+          require('fs').writeFileSync('.vercel/output/config.json', JSON.stringify(config, null, 2));
+          console.log('config.json generado con', routes.length, 'routes');
+          "
+
+          echo "=== .vercel/output/config.json ==="
+          cat .vercel/output/config.json | head -30
+
+          # Paso C: deploy con --prebuilt (sube .vercel/output/ tal cual)
           DEPLOY_URL=$(vercel deploy \
             --prebuilt \
             $PROD_FLAG \
             --token="${{ secrets.VERCEL_TOKEN }}" \
-            2>&1 | grep -E 'https://.*vercel\.app' | tail -1)
+            2>&1 | grep -E 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
 
           echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
           echo "Deployed to: $DEPLOY_URL"

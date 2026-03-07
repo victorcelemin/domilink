@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Order } from '../../api/orderApi';
 import { Colors, Shadow, orderStatusColor } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
-import { formatCOP, formatDistance, getOrderStatusLabel, getPaymentModeLabel } from '../../utils/formatters';
+import { formatCOP, formatDistance, getOrderStatusLabel } from '../../utils/formatters';
 
 interface OrderCardProps {
   order: Order;
@@ -19,76 +19,130 @@ const STATUS_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   CANCELLED:  'close-circle-outline',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  PENDING:    'Pendiente',
+  ASSIGNED:   'Asignado',
+  IN_TRANSIT: 'En camino',
+  DELIVERED:  'Entregado',
+  CANCELLED:  'Cancelado',
+};
+
 export const OrderCard: React.FC<OrderCardProps> = ({ order, onPress }) => {
-  const isBase = order.paymentMode === 'BASE';
-  const statusColor = orderStatusColor(order.status);
-  const paymentColor = isBase ? Colors.paymentBase : Colors.paymentPaid;
-  const paymentBg    = isBase ? Colors.paymentBaseLight : Colors.paymentPaidLight;
-  const paymentBorder= isBase ? Colors.paymentBaseBorder : Colors.paymentPaidBorder;
+  const isBase       = order.paymentMode === 'BASE';
+  const statusColor  = orderStatusColor(order.status);
+  const paymentColor = isBase ? Colors.paymentBase    : Colors.paymentPaid;
+  const paymentBg    = isBase ? Colors.paymentBaseLight: Colors.paymentPaidLight;
+  const paymentBorder= isBase ? Colors.paymentBaseBorder: Colors.paymentPaidBorder;
+  const isDelivered  = order.status === 'DELIVERED';
+  const isCancelled  = order.status === 'CANCELLED';
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, isCancelled && styles.cardCancelled]}
       onPress={onPress}
-      activeOpacity={0.88}
+      activeOpacity={0.84}
     >
-      {/* Barra de color de estado */}
-      <View style={[styles.statusStripe, { backgroundColor: statusColor }]} />
+      {/* Barra lateral de estado */}
+      <View style={[styles.statusBar, { backgroundColor: statusColor }]}>
+        <View style={styles.statusBarIcon}>
+          <Ionicons
+            name={STATUS_ICONS[order.status] ?? 'ellipse-outline'}
+            size={12}
+            color={Colors.white}
+          />
+        </View>
+      </View>
 
       <View style={styles.body}>
-        {/* Fila superior: estado + modo pago + precio */}
+        {/* ── Fila superior: chips + precio ── */}
         <View style={styles.topRow}>
-          <View style={[styles.statusChip, { backgroundColor: statusColor + '18' }]}>
-            <Ionicons name={STATUS_ICONS[order.status] ?? 'ellipse-outline'} size={13} color={statusColor} />
-            <Text style={[styles.statusText, { color: statusColor }]}>
-              {getOrderStatusLabel(order.status)}
-            </Text>
-          </View>
+          <View style={styles.chipsRow}>
+            {/* Status chip */}
+            <View style={[styles.statusChip, { backgroundColor: statusColor + '18', borderColor: statusColor + '35' }]}>
+              <Text style={[styles.statusChipText, { color: statusColor }]}>
+                {STATUS_LABELS[order.status] ?? order.status}
+              </Text>
+            </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {/* Payment chip */}
             <View style={[styles.paymentChip, { backgroundColor: paymentBg, borderColor: paymentBorder }]}>
               <Ionicons
                 name={isBase ? 'cash-outline' : 'checkmark-circle-outline'}
-                size={11}
+                size={10}
                 color={paymentColor}
               />
-              <Text style={[styles.paymentText, { color: paymentColor }]}>
+              <Text style={[styles.paymentChipText, { color: paymentColor }]}>
                 {isBase ? 'BASE' : 'PAGADO'}
               </Text>
             </View>
-            <Text style={styles.price}>{formatCOP(order.finalPrice)}</Text>
           </View>
+
+          {/* Precio destacado */}
+          <Text style={[styles.price, isDelivered && styles.priceDelivered]}>
+            {formatCOP(order.finalPrice)}
+          </Text>
         </View>
 
-        {/* Ruta */}
+        {/* ── Ruta visual mejorada ── */}
         <View style={styles.routeContainer}>
+          {/* Pickup */}
           <View style={styles.routeRow}>
-            <View style={[styles.dot, { backgroundColor: Colors.secondary }]} />
-            <Text style={styles.addressText} numberOfLines={1}>{order.pickupAddress}</Text>
+            <View style={styles.routeIconCol}>
+              <View style={[styles.routeDot, styles.pickupDot]} />
+              <View style={styles.routeLine} />
+            </View>
+            <View style={styles.routeTextCol}>
+              <Text style={styles.routeLabel}>Recogida</Text>
+              <Text style={styles.routeAddress} numberOfLines={1}>
+                {order.pickupAddress}
+              </Text>
+            </View>
           </View>
-          <View style={styles.connector} />
+
+          {/* Delivery */}
           <View style={styles.routeRow}>
-            <View style={[styles.dot, { backgroundColor: Colors.primary }]} />
-            <Text style={styles.addressText} numberOfLines={1}>{order.deliveryAddress}</Text>
+            <View style={styles.routeIconCol}>
+              <View style={[styles.routeDot, styles.deliveryDot]} />
+            </View>
+            <View style={styles.routeTextCol}>
+              <Text style={styles.routeLabel}>Entrega</Text>
+              <Text style={styles.routeAddress} numberOfLines={1}>
+                {order.deliveryAddress}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Footer: destinatario + distancia */}
+        {/* ── Footer ── */}
         <View style={styles.footer}>
+          {/* Destinatario */}
           <View style={styles.footerItem}>
-            <Ionicons name="person-outline" size={13} color={Colors.textTertiary} />
+            <View style={styles.footerIconBox}>
+              <Ionicons name="person-outline" size={11} color={Colors.textTertiary} />
+            </View>
             <Text style={styles.footerText} numberOfLines={1}>{order.recipientName}</Text>
           </View>
+
+          {/* Distancia */}
           <View style={styles.footerItem}>
-            <Ionicons name="navigate-outline" size={13} color={Colors.textTertiary} />
+            <View style={styles.footerIconBox}>
+              <Ionicons name="navigate-outline" size={11} color={Colors.textTertiary} />
+            </View>
             <Text style={styles.footerText}>{formatDistance(order.distanceKm)}</Text>
           </View>
+
+          {/* BASE amount */}
           {isBase && order.baseAmount && (
-            <View style={[styles.baseAmountChip]}>
-              <Text style={styles.baseAmountText}>Base: {formatCOP(order.baseAmount)}</Text>
+            <View style={styles.baseChip}>
+              <Ionicons name="cash" size={10} color={Colors.paymentBase} />
+              <Text style={styles.baseChipText}>{formatCOP(order.baseAmount)}</Text>
             </View>
           )}
-          <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+
+          {/* Flecha */}
+          <View style={styles.arrowBox}>
+            <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -98,95 +152,130 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onPress }) => {
 const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
-    backgroundColor: Colors.card,
-    borderRadius: 16,
+    backgroundColor: Colors.white,
+    borderRadius: 18,
     marginBottom: 10,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: Colors.border,
-    ...Shadow.small,
+    ...Shadow.medium,
+  },
+  cardCancelled: {
+    opacity: 0.65,
+    borderColor: Colors.errorBorder,
   },
 
-  statusStripe: {
-    width: 4,
-    borderTopLeftRadius: 16,
-    borderBottomLeftRadius: 16,
+  // Barra lateral
+  statusBar: {
+    width: 6,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+  },
+  statusBarIcon: {
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
   body: {
     flex: 1,
     padding: 14,
+    paddingLeft: 12,
+    gap: 10,
   },
 
+  // ── Top row ──────────────────────────────────────────────────
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
   },
+  chipsRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
 
   statusChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 8, borderWidth: 1,
   },
-  statusText: {
+  statusChipText: {
     ...Typography.overline,
     fontSize: 10,
   },
 
   paymentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderRadius: 8, borderWidth: 1,
   },
-  paymentText: {
+  paymentChipText: {
     ...Typography.overline,
     fontSize: 9,
   },
 
   price: {
-    ...Typography.subtitle2,
+    ...Typography.subtitle1,
     color: Colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  priceDelivered: {
+    color: Colors.success,
   },
 
-  routeContainer: { marginBottom: 10 },
+  // ── Route ────────────────────────────────────────────────────
+  routeContainer: { gap: 0 },
 
   routeRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
+    minHeight: 36,
+  },
+  routeIconCol: {
+    width: 20,
     alignItems: 'center',
-    gap: 8,
+    paddingTop: 6,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  connector: {
+  routeLine: {
+    flex: 1,
     width: 1.5,
-    height: 10,
     backgroundColor: Colors.border,
-    marginLeft: 3.25,
     marginVertical: 2,
   },
-  addressText: {
-    ...Typography.body3,
-    color: Colors.textSecondary,
-    flex: 1,
+  routeDot: {
+    width: 10, height: 10, borderRadius: 5,
+    borderWidth: 2,
+  },
+  pickupDot: {
+    backgroundColor: Colors.secondary,
+    borderColor: Colors.secondary + '50',
+  },
+  deliveryDot: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary + '50',
   },
 
+  routeTextCol: {
+    flex: 1,
+    paddingLeft: 8,
+    paddingBottom: 6,
+    justifyContent: 'flex-start',
+  },
+  routeLabel: {
+    ...Typography.caption2,
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 1,
+  },
+  routeAddress: {
+    ...Typography.body3,
+    color: Colors.textSecondary,
+  },
+
+  // ── Footer ───────────────────────────────────────────────────
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: Colors.borderLight,
@@ -194,8 +283,13 @@ const styles = StyleSheet.create({
   footerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
     flex: 1,
+  },
+  footerIconBox: {
+    width: 18, height: 18, borderRadius: 5,
+    backgroundColor: Colors.surfaceElevated,
+    alignItems: 'center', justifyContent: 'center',
   },
   footerText: {
     ...Typography.caption,
@@ -203,17 +297,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  baseAmountChip: {
+  baseChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: Colors.paymentBaseLight,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: Colors.paymentBaseBorder,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1, borderColor: Colors.paymentBaseBorder,
   },
-  baseAmountText: {
+  baseChipText: {
     ...Typography.caption2,
     color: Colors.paymentBase,
     fontWeight: '700',
+  },
+
+  arrowBox: {
+    width: 24, height: 24, borderRadius: 8,
+    backgroundColor: Colors.background,
+    alignItems: 'center', justifyContent: 'center',
   },
 });

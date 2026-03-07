@@ -5,16 +5,31 @@ import { companyApi } from '../api/companyApi';
 import { courierApi } from '../api/courierApi';
 import { TOKEN_KEY, USER_KEY, COMPANY_ID_KEY, COURIER_ID_KEY } from '../api/client';
 
+/**
+ * Resultado de login: puede ser exito directo o requerir paso 2FA.
+ */
+export type LoginResult =
+  | { requiresOtp: false }
+  | { requiresOtp: true; email: string; role: 'COMPANY' | 'COURIER' | 'ADMIN'; otpDev?: string };
+
 interface AuthContextType {
   user: AuthUser | null;
   companyId: string | null;
   courierId: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** Retorna LoginResult para que el componente sepa si navegar al paso OTP. */
+  login: (email: string, password: string) => Promise<LoginResult>;
   register: (email: string, password: string, displayName: string, role: 'COMPANY' | 'COURIER') => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Verifica el OTP ingresado por el usuario y completa la sesion. */
+  verifyOtp: (email: string, otp: string) => Promise<void>;
+  /**
+   * Solicita un nuevo OTP al backend.
+   * Retorna el codigo OTP si el backend lo incluye en la respuesta (solo dev).
+   */
+  resendOtp: (email: string) => Promise<string | undefined>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,10 +64,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<LoginResult> => {
     const { data } = await authApi.login({ email, password });
+
+    if (data.requiresOtp) {
+      // Disparar el envio del OTP automaticamente
+      let otpDev: string | undefined;
+      try {
+        const otpResp = await authApi.sendOtp(email);
+        otpDev = otpResp.data.otp; // solo presente en dev
+      } catch {
+        // Si falla el envio del OTP igual redirigir a la pantalla para que el usuario pueda solicitar uno
+      }
+      return { requiresOtp: true, email, role: data.role as 'COMPANY' | 'COURIER' | 'ADMIN', otpDev };
+    }
+
     await saveSession(data);
     await loadProfile(data);
+    return { requiresOtp: false };
+  };
+
+  const verifyOtp = async (email: string, otp: string): Promise<void> => {
+    const { data } = await authApi.verifyOtp(email, otp);
+    await saveSession(data);
+    await loadProfile(data);
+  };
+
+  const resendOtp = async (email: string): Promise<string | undefined> => {
+    const { data } = await authApi.sendOtp(email);
+    return data.otp;
   };
 
   const register = async (
@@ -67,10 +107,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const saveSession = async (authUser: AuthUser) => {
     setUser(authUser);
-    await AsyncStorage.multiSet([
-      [TOKEN_KEY, authUser.accessToken],
-      [USER_KEY, JSON.stringify(authUser)],
-    ]);
+    // Solo guardar token si existe (no guardar respuestas requiresOtp intermedias)
+    const pairs: [string, string][] = [[USER_KEY, JSON.stringify(authUser)]];
+    if (authUser.accessToken) {
+      pairs.push([TOKEN_KEY, authUser.accessToken]);
+    }
+    await AsyncStorage.multiSet(pairs);
   };
 
   /**
@@ -116,6 +158,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       register,
       logout,
       refreshProfile,
+      verifyOtp,
+      resendOtp,
     }}>
       {children}
     </AuthContext.Provider>

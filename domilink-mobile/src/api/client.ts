@@ -5,50 +5,75 @@ import { Platform } from 'react-native';
 /**
  * Configuracion de URLs para los microservicios.
  *
- * PRODUCCION (Cloud Run):
- *   - Todas las peticiones van al API Gateway via EXPO_PUBLIC_API_URL
- *   - El gateway enruta internamente a cada microservicio
+ * PRODUCCION WEB (Vercel):
+ *   - Las peticiones usan rutas relativas  ('')  → van al proxy de Vercel
+ *   - Vercel reenvía /api/* al gateway de Cloud Run en el servidor
+ *   - Asi el browser NUNCA habla directamente con Cloud Run → sin CORS
+ *
+ * PRODUCCION MOVIL (Android / iOS):
+ *   - Las peticiones van directamente al API Gateway via EXPO_PUBLIC_API_URL
+ *   - Las apps nativas no tienen restriccion de CORS
  *
  * DESARROLLO LOCAL:
  *   - Android Emulator  → 10.0.2.2  (apunta al localhost del host)
  *   - iOS Simulator     → localhost
- *   - Web (browser)     → localhost
- *   - Dispositivo fisico→ IP de la maquina en la red local
+ *   - Web (browser)     → localhost (gateway local en :8080)
  */
 
-// URL de produccion inyectada en build time por el workflow de GitHub Actions
+// URL del gateway de Cloud Run (usada solo por apps nativas en produccion)
 const PRODUCTION_GATEWAY = process.env.EXPO_PUBLIC_API_URL ?? '';
-
-// IP de tu maquina en la red local (para desarrollo con dispositivo fisico)
-const MACHINE_IP = '192.168.40.7';
 
 const getLocalHost = () => {
   if (Platform.OS === 'android') return '10.0.2.2';
-  return 'localhost'; // iOS simulator + web
+  return 'localhost';
 };
 
-// Si existe EXPO_PUBLIC_API_URL, usar el gateway de produccion
-// De lo contrario, usar los servicios locales por separado
+/**
+ * Determina el baseURL correcto segun plataforma y entorno:
+ *
+ * WEB (siempre):
+ *   → '' (vacio) — las peticiones /api/... son relativas al mismo origen.
+ *   → Vercel intercepta /api/* y hace proxy al gateway de Cloud Run.
+ *   → El browser nunca ve la URL de Cloud Run → CORS eliminado por diseno.
+ *
+ * MOVIL + produccion (EXPO_PUBLIC_API_URL definida):
+ *   → URL completa del gateway. Las apps nativas no tienen restriccion CORS.
+ *
+ * MOVIL/WEB + desarrollo local (sin EXPO_PUBLIC_API_URL):
+ *   → Gateway local en :8080.
+ */
+const getBaseURL = (): string => {
+  // En web SIEMPRE usar rutas relativas para que el proxy de Vercel
+  // maneje el reenvio al gateway. Esto funciona tanto en dev web como
+  // en produccion Vercel — en dev web el proxy no existe pero el
+  // gateway local tampoco tiene CORS problem.
+  if (Platform.OS === 'web') {
+    return '';
+  }
+
+  // Nativo con gateway de produccion configurado
+  if (PRODUCTION_GATEWAY.length > 0) {
+    return PRODUCTION_GATEWAY;
+  }
+
+  // Desarrollo local nativo
+  return `http://${getLocalHost()}:8080`;
+};
+
 const IS_PRODUCTION = PRODUCTION_GATEWAY.length > 0;
 
 export const GATEWAY_URL = IS_PRODUCTION
   ? PRODUCTION_GATEWAY
   : `http://${getLocalHost()}:8080`;
 
-// En produccion todo va al gateway; en local apunta a cada servicio directamente
-export const SERVICE_URLS = IS_PRODUCTION
-  ? {
-      auth:    PRODUCTION_GATEWAY,
-      company: PRODUCTION_GATEWAY,
-      courier: PRODUCTION_GATEWAY,
-      order:   PRODUCTION_GATEWAY,
-    }
-  : {
-      auth:    `http://${getLocalHost()}:8081`,
-      company: `http://${getLocalHost()}:8082`,
-      courier: `http://${getLocalHost()}:8083`,
-      order:   `http://${getLocalHost()}:8084`,
-    };
+const BASE_URL = getBaseURL();
+
+export const SERVICE_URLS = {
+  auth:    BASE_URL,
+  company: BASE_URL,
+  courier: BASE_URL,
+  order:   BASE_URL,
+};
 
 export const TOKEN_KEY      = '@domilink:token';
 export const USER_KEY       = '@domilink:user';

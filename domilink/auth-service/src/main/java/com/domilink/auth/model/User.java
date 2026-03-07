@@ -17,6 +17,11 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    // --- 2FA / OTP ---
+    private String otpCode;            // Codigo OTP de 6 digitos (en produccion debe cifrarse)
+    private LocalDateTime otpExpiry;   // Expiracion del OTP (5 minutos)
+    private boolean otpVerified;       // true cuando el OTP fue validado en este login
+
     public enum UserRole {
         COMPANY,    // Empresa que publica pedidos
         COURIER,    // Domiciliario que toma pedidos
@@ -66,4 +71,13 @@ public class User {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getOtpCode() { return otpCode; }
+    public void setOtpCode(String otpCode) { this.otpCode = otpCode; }
+
+    public LocalDateTime getOtpExpiry() { return otpExpiry; }
+    public void setOtpExpiry(LocalDateTime otpExpiry) { this.otpExpiry = otpExpiry; }
+
+    public boolean isOtpVerified() { return otpVerified; }
+    public void setOtpVerified(boolean otpVerified) { this.otpVerified = otpVerified; }
 }

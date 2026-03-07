@@ -17,6 +17,9 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
+            // CORS is handled by the API Gateway — disable Spring Security's own CORS
+            // processing to prevent duplicate Access-Control-Allow-Origin headers.
+            .cors(cors -> cors.disable())
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
@@ -24,6 +27,9 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/register",
                     "/api/auth/login",
+                    "/api/auth/otp/send",
+                    "/api/auth/otp/verify",
+                    "/api/auth/health",
                     "/actuator/health",
                     "/actuator/info"
                 ).permitAll()

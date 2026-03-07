@@ -11,6 +11,8 @@ public class AuthResponse {
     private String email;
     private User.UserRole role;
     private User.UserStatus status;
+    /** true cuando el login fue exitoso pero aun falta verificar el OTP (2FA). */
+    private boolean requiresOtp;
 
     public AuthResponse() {}
 
@@ -22,6 +24,15 @@ public class AuthResponse {
         this.email = email;
         this.role = role;
         this.status = status;
+        this.requiresOtp = false;
+    }
+
+    /** Constructor para respuesta que requiere OTP (sin token todavia). */
+    public AuthResponse(String email, User.UserRole role, User.UserStatus status, boolean requiresOtp) {
+        this.email = email;
+        this.role = role;
+        this.status = status;
+        this.requiresOtp = requiresOtp;
     }
 
     // Getters y Setters
@@ -45,4 +56,7 @@ public class AuthResponse {
 
     public User.UserStatus getStatus() { return status; }
     public void setStatus(User.UserStatus status) { this.status = status; }
+
+    public boolean isRequiresOtp() { return requiresOtp; }
+    public void setRequiresOtp(boolean requiresOtp) { this.requiresOtp = requiresOtp; }
 }

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -100,7 +101,20 @@ public class AuthService {
     }
 
     /**
+     * Lista de emails considerados "usuarios de prueba".
+     * Estos usuarios omiten el paso 2FA y reciben el JWT directamente.
+     */
+    private static final java.util.Set<String> TEST_USER_EMAILS = java.util.Set.of(
+            "empresa@ejemplo.com",
+            "domiciliario@ejemplo.com"
+    );
+
+    /**
      * Autentica un usuario con email y password.
+     *
+     * - Usuarios normales: valida credenciales y retorna requiresOtp=true.
+     *   El frontend debe solicitar el OTP (/otp/send) y verificarlo (/otp/verify).
+     * - Usuarios de prueba: retorna el JWT directamente sin 2FA.
      */
     public AuthResponse login(LoginRequest request) {
         User user = usersByEmail.get(request.getEmail().toLowerCase());
@@ -121,10 +135,82 @@ public class AuthService {
             throw new RuntimeException("La cuenta fue rechazada. Los documentos no fueron aprobados.");
         }
 
-        log.info("Login exitoso para: {}", user.getEmail());
+        log.info("Login exitoso (credenciales) para: {}", user.getEmail());
+
+        // Usuarios de prueba: saltar 2FA, retornar JWT directamente
+        if (TEST_USER_EMAILS.contains(user.getEmail())) {
+            log.info("Usuario de prueba — omitiendo 2FA para: {}", user.getEmail());
+            String token = jwtTokenProvider.generateToken(user);
+            return new AuthResponse(
+                    token,
+                    jwtTokenProvider.getExpirationMs(),
+                    user.getId(),
+                    user.getEmail(),
+                    user.getRole(),
+                    user.getStatus()
+            );
+        }
+
+        // Usuario real: indicar al frontend que debe completar el paso 2FA
+        return new AuthResponse(user.getEmail(), user.getRole(), user.getStatus(), true);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 2FA / OTP
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Genera un OTP de 6 digitos para el usuario y lo almacena (expira en 5 min).
+     * Retorna el codigo para que el llamador lo envie por email/SMS.
+     * En produccion integrar con SendGrid, Twilio, etc.
+     */
+    public String generateOtp(String email) {
+        User user = usersByEmail.get(email.toLowerCase());
+        if (user == null) {
+            // No revelar si el email existe o no
+            throw new RuntimeException("Si el email existe, recibirás un código de verificación.");
+        }
+
+        String otp = String.format("%06d", new Random().nextInt(1_000_000));
+        user.setOtpCode(otp);
+        user.setOtpExpiry(LocalDateTime.now().plusMinutes(5));
+        user.setOtpVerified(false);
+
+        log.info("OTP generado para {}: {} (expira en 5 min)", email, otp);
+        // TODO produccion: enviar por email / SMS en lugar de loguear
+
+        return otp;
+    }
+
+    /**
+     * Verifica el OTP y, si es correcto, devuelve el JWT completo.
+     * El OTP solo puede usarse una vez.
+     */
+    public AuthResponse verifyOtp(String email, String otp) {
+        User user = usersByEmail.get(email.toLowerCase());
+
+        if (user == null || user.getOtpCode() == null) {
+            throw new RuntimeException("Código inválido o expirado.");
+        }
+
+        if (LocalDateTime.now().isAfter(user.getOtpExpiry())) {
+            user.setOtpCode(null);
+            throw new RuntimeException("El código OTP ha expirado. Solicita uno nuevo.");
+        }
+
+        if (!user.getOtpCode().equals(otp)) {
+            throw new RuntimeException("Código incorrecto.");
+        }
+
+        // Marcar como verificado y limpiar
+        user.setOtpVerified(true);
+        user.setOtpCode(null);
+        user.setOtpExpiry(null);
+        user.setUpdatedAt(LocalDateTime.now());
+
+        log.info("OTP verificado correctamente para: {}", email);
 
         String token = jwtTokenProvider.generateToken(user);
-
         return new AuthResponse(
                 token,
                 jwtTokenProvider.getExpirationMs(),

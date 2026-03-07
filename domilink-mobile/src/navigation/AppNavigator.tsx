@@ -8,6 +8,7 @@ import { LoadingScreen } from '../components/common/LoadingScreen';
 import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
+import { OtpScreen } from '../screens/auth/OtpScreen';
 
 // Company
 import { CompanyHomeScreen } from '../screens/company/CompanyHomeScreen';
@@ -28,6 +29,7 @@ const AuthStack = () => (
     <Stack.Screen name="Welcome" component={WelcomeScreen} />
     <Stack.Screen name="Login" component={LoginScreen} />
     <Stack.Screen name="Register" component={RegisterScreen} />
+    <Stack.Screen name="Otp" component={OtpScreen} />
   </Stack.Navigator>
 );
 

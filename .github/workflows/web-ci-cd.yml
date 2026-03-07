@@ -1,0 +1,202 @@
+# ============================================================
+# DomiLink - Web CI/CD Pipeline
+# Build Expo Web y Deploy en Vercel
+# ============================================================
+
+name: Web CI/CD - DomiLink
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'domilink-mobile/**'
+      - '.github/workflows/web-ci-cd.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'domilink-mobile/**'
+
+env:
+  NODE_VERSION: '18'
+  WORKING_DIR: domilink-mobile
+
+jobs:
+  # ==================== ANALISIS FRONTEND ====================
+  analyze-web:
+    name: Analisis y Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Verificar tipos TypeScript
+        run: npx tsc --noEmit
+
+      - name: Lint del codigo
+        run: npx eslint . --ext .ts,.tsx --max-warnings 50 || echo "::warning::ESLint encontro advertencias"
+        continue-on-error: true
+
+      - name: Audit de seguridad npm
+        run: npm audit --audit-level=high || echo "::warning::Revisar vulnerabilidades de dependencias"
+        continue-on-error: true
+
+      - name: Resumen de analisis
+        run: |
+          echo "### Analisis Web" >> $GITHUB_STEP_SUMMARY
+          echo "- Node: $(node --version)" >> $GITHUB_STEP_SUMMARY
+          echo "- TypeScript: $(npx tsc --version)" >> $GITHUB_STEP_SUMMARY
+          echo "- Expo SDK: $(node -e "console.log(require('./package.json').dependencies.expo)")" >> $GITHUB_STEP_SUMMARY
+
+  # ==================== BUILD WEB ====================
+  build-web:
+    name: Build Expo Web
+    runs-on: ubuntu-latest
+    needs: analyze-web
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Expo CLI
+        run: npm install -g @expo/cli
+
+      - name: Crear archivo .env para build
+        run: |
+          echo "EXPO_PUBLIC_API_URL=${{ secrets.API_BASE_URL }}" > .env
+          echo "EXPO_PUBLIC_APP_ENV=production" >> .env
+
+      - name: Build Expo Web (export estatico limpio)
+        run: npx expo export --platform web --output-dir dist --clear
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.API_BASE_URL }}
+
+      - name: Verificar build
+        run: |
+          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then
+            echo "Build web exitoso"
+            echo "Archivos generados: $(find dist -type f | wc -l)"
+            du -sh dist/
+          else
+            echo "::error::El directorio dist esta vacio o no existe"
+            exit 1
+          fi
+
+      - name: Subir artefacto web
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: domilink-mobile/dist/
+          retention-days: 7
+
+  # ==================== DEPLOY EN VERCEL ====================
+  deploy-web:
+    name: Deploy Web en Vercel
+    runs-on: ubuntu-latest
+    needs: build-web
+    if: github.event_name == 'push'
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production-web' || 'preview-web' }}
+      url: ${{ steps.deploy.outputs.url || steps.deploy-preview.outputs.url }}
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: domilink-mobile/package-lock.json
+
+      - name: Instalar Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Descargar el dist/ compilado al checkout existente del repo.
+      # El deploy se hace desde domilink-mobile/ donde esta vercel.json.
+      # Vercel lee vercel.json, encuentra outputDirectory=dist/ ya compilado,
+      # y aplica rewrites (proxy /api/* → Cloud Run) y headers CORS en el edge.
+      - name: Descargar artefacto web
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: domilink-mobile/dist/
+
+      - name: Deploy en Vercel (Produccion)
+        id: deploy
+        if: github.ref == 'refs/heads/main'
+        working-directory: domilink-mobile
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # vercel pull descarga la configuracion del proyecto (incluyendo variables de entorno)
+          vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+
+          # vercel build usa el vercel.json local para configurar el proyecto.
+          # Como dist/ ya existe y outputDirectory=dist, Vercel lo detecta.
+          # SKIP_INSTALL=1 evita que Vercel re-instale dependencias.
+          vercel build --prod --token=$VERCEL_TOKEN \
+            --build-env EXPO_PUBLIC_API_URL=${{ secrets.API_BASE_URL }} \
+            --build-env EXPO_PUBLIC_APP_ENV=production
+
+          # vercel deploy --prebuilt sube el .vercel/output generado por build
+          URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN 2>&1 \
+            | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $URL"
+
+      - name: Deploy Preview en Vercel (develop)
+        id: deploy-preview
+        if: github.ref != 'refs/heads/main'
+        working-directory: domilink-mobile
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+          vercel build --token=$VERCEL_TOKEN \
+            --build-env EXPO_PUBLIC_API_URL=${{ secrets.API_BASE_URL }} \
+            --build-env EXPO_PUBLIC_APP_ENV=production
+          URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN 2>&1 \
+            | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Preview URL: $URL"
+
+      - name: Resumen del deploy
+        run: |
+          echo "### Deploy Web - DomiLink" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Plataforma: Vercel" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: ${{ steps.deploy.outputs.url || steps.deploy-preview.outputs.url || 'Ver Vercel dashboard' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

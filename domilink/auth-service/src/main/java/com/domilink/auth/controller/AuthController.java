@@ -47,13 +47,52 @@ public class AuthController {
     }
 
     /**
-     * Autentica un usuario y retorna JWT.
+     * Autentica un usuario con email/password.
+     * Si las credenciales son correctas, genera un OTP y lo retorna en la respuesta
+     * con requiresOtp=true. El frontend debe redirigir al paso de verificacion OTP.
+     * Usuarios de prueba (TEST) omiten el paso 2FA y reciben el JWT directamente.
      * Acceso: Publico
      */
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         log.info("Solicitud de login para: {}", request.getEmail());
         AuthResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Solicita un nuevo codigo OTP para el email indicado.
+     * Llamar despues de un login exitoso (credenciales validas) para iniciar 2FA.
+     * Acceso: Publico
+     */
+    @PostMapping("/otp/send")
+    public ResponseEntity<Map<String, Object>> sendOtp(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "El campo 'email' es obligatorio"));
+        }
+        // En dev el OTP se retorna en la respuesta para facilitar pruebas.
+        // En produccion omitir 'otp' de la respuesta y enviarlo por email/SMS.
+        String otp = authService.generateOtp(email.trim().toLowerCase());
+        log.info("OTP enviado (simulado) a: {}", email);
+        return ResponseEntity.ok(Map.of(
+                "message", "Codigo OTP enviado al correo registrado",
+                "otp", otp   // SOLO para desarrollo — eliminar en produccion
+        ));
+    }
+
+    /**
+     * Verifica el codigo OTP y, si es correcto, retorna el JWT final.
+     * Acceso: Publico
+     */
+    @PostMapping("/otp/verify")
+    public ResponseEntity<AuthResponse> verifyOtp(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String otp   = body.get("otp");
+        if (email == null || otp == null) {
+            throw new RuntimeException("Los campos 'email' y 'otp' son obligatorios");
+        }
+        AuthResponse response = authService.verifyOtp(email.trim().toLowerCase(), otp.trim());
         return ResponseEntity.ok(response);
     }
 

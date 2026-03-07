@@ -1,16 +1,32 @@
 {
   "version": 2,
   "name": "domilink-web",
-  "buildCommand": "npx expo export --platform web --output-dir dist",
+  "buildCommand": "npx expo export --platform web --output-dir dist --clear",
   "outputDirectory": "dist",
+  "installCommand": "npm ci",
   "framework": null,
+
   "rewrites": [
     {
-      "source": "/((?!_expo|static|favicon.ico|assets).*)",
+      "source": "/api/:path*",
+      "destination": "https://domilink-api-gateway-755906643293.us-central1.run.app/api/:path*"
+    },
+    {
+      "source": "/((?!_expo|static|favicon.ico|assets|api).*)",
       "destination": "/index.html"
     }
   ],
+
   "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin",      "value": "https://domilink-mobile.vercel.app" },
+        { "key": "Access-Control-Allow-Methods",     "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH" },
+        { "key": "Access-Control-Allow-Headers",     "value": "Content-Type,Authorization,X-User-Id,X-User-Role,X-User-Email,X-Company-Id,X-Courier-Id" },
+        { "key": "Access-Control-Max-Age",           "value": "3600" }
+      ]
+    },
     {
       "source": "/_expo/static/(.*)",
       "headers": [
@@ -27,8 +43,12 @@
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+        { "key": "X-Frame-Options",        "value": "SAMEORIGIN" }
       ]
     }
-  ]
+  ],
+
+  "env": {
+    "EXPO_PUBLIC_APP_ENV": "production"
+  }
 }

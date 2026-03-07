@@ -73,6 +73,7 @@ jobs:
         run: npx expo export --platform web --output-dir dist --clear
         env:
           CI: true
+          EXPO_METRO_PLATFORM_WEB: "1"
           EXPO_PUBLIC_API_URL: ${{ secrets.API_GATEWAY_URL }}
           EXPO_PUBLIC_APP_ENV: production
 

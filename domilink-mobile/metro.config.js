@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
@@ -9,20 +10,25 @@ const config = getDefaultConfig(__dirname);
 // Lo sustituimos por un stub CJS que delega en el Animated de React Native.
 //
 // react-native-maps tampoco funciona en web → stub con placeholder visual.
+//
+// IMPORTANTE: Metro puede pasar platform=null para resolutions que vienen
+// de dentro de node_modules (e.g. gesture-handler → reanimated). Para esos
+// casos usamos EXPO_METRO_PLATFORM_WEB (seteado en vercel.json buildCommand)
+// como fallback, o detectamos via originModulePath que el build es web.
+const WEB_STUBS = {
+  'react-native-reanimated': require.resolve('./src/mocks/react-native-reanimated.web.js'),
+  'react-native-maps':       require.resolve('./src/mocks/react-native-maps.web.js'),
+};
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === 'web') {
-    if (moduleName === 'react-native-reanimated') {
-      return {
-        filePath: require.resolve('./src/mocks/react-native-reanimated.web.js'),
-        type: 'sourceFile',
-      };
-    }
-    if (moduleName === 'react-native-maps') {
-      return {
-        filePath: require.resolve('./src/mocks/react-native-maps.web.js'),
-        type: 'sourceFile',
-      };
-    }
+  // platform puede ser 'web', null, o undefined dependiendo de si la
+  // resolution viene de user-code vs node_modules internos.
+  const isWebBuild =
+    platform === 'web' ||
+    process.env.EXPO_METRO_PLATFORM_WEB === '1';
+
+  if (isWebBuild && WEB_STUBS[moduleName]) {
+    return { filePath: WEB_STUBS[moduleName], type: 'sourceFile' };
   }
   return context.resolveRequest(context, moduleName, platform);
 };

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "domilink-web",
-  "buildCommand": "npx expo export --platform web --output-dir dist --clear",
+  "buildCommand": "EXPO_METRO_PLATFORM_WEB=1 npx expo export --platform web --output-dir dist --clear",
   "outputDirectory": "dist",
   "installCommand": "npm ci",
   "framework": null,

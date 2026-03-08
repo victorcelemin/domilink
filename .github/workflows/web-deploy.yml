@@ -5,7 +5,14 @@
 # COMO FUNCIONA:
 #   1. Verifica TypeScript
 #   2. Exporta la app como sitio estatico con expo export --platform web
-#   3. Despliega en Vercel via CLI (produccion o preview segun rama)
+#   3. Construye la estructura .vercel/output/ manualmente (sin vercel build)
+#   4. Despliega en Vercel via CLI con --prebuilt (produccion o preview)
+#
+# Por que no usamos "vercel build":
+#   vercel build re-ejecuta el buildCommand de vercel.json, lo que produce
+#   un segundo bundle que NO tiene EXPO_METRO_PLATFORM_WEB=1 y rompe el
+#   stub de reanimated. En cambio, construimos el dist/ correcto en el
+#   paso 6 y empaquetamos el .vercel/output/ nosotros mismos.
 #
 # SECRETOS NECESARIOS en GitHub:
 #   VERCEL_TOKEN        -> Token de Vercel
@@ -87,12 +94,64 @@ jobs:
           DIST_SIZE=$(du -sh dist/ | cut -f1)
           echo "Build exitoso: $FILE_COUNT archivos, $DIST_SIZE total"
 
-      - name: "8. Instalar Vercel CLI"
+      - name: "8. Construir estructura .vercel/output/ para deploy prebuilt"
         if: github.event_name == 'push'
-        run: npm install -g vercel@latest
+        run: |
+          # Vercel espera .vercel/output/config.json + .vercel/output/static/
+          # para sitios estaticos. Esto evita que "vercel build" re-ejecute
+          # el buildCommand y produzca un bundle incorrecto.
+          mkdir -p .vercel/output/static
+
+          # Copiar todo el dist/ a static/
+          cp -r dist/. .vercel/output/static/
+
+          # config.json: declara que es un sitio estatico con las rewrites
+          # y headers definidos en vercel.json.
+          cat > .vercel/output/config.json << 'EOF'
+          {
+            "version": 3,
+            "routes": [
+              {
+                "src": "/api/(.*)",
+                "dest": "https://domilink-api-gateway-755906643293.us-central1.run.app/api/$1",
+                "headers": {
+                  "Access-Control-Allow-Origin": "https://domilink-mobile.vercel.app",
+                  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS,PATCH",
+                  "Access-Control-Allow-Headers": "Content-Type,Authorization,X-User-Id,X-User-Role,X-User-Email,X-Company-Id,X-Courier-Id",
+                  "Access-Control-Max-Age": "3600"
+                }
+              },
+              {
+                "src": "/_expo/static/(.*)",
+                "headers": { "Cache-Control": "public, max-age=31536000, immutable" },
+                "continue": true
+              },
+              {
+                "src": "/assets/(.*)",
+                "headers": { "Cache-Control": "public, max-age=604800" },
+                "continue": true
+              },
+              {
+                "handle": "filesystem"
+              },
+              {
+                "src": "/((?!_expo|static|favicon.ico|assets|api).*)",
+                "dest": "/index.html"
+              }
+            ]
+          }
+          EOF
+
+          echo "Estructura .vercel/output/ lista:"
+          ls -la .vercel/output/
+          ls -la .vercel/output/static/ | head -20
+
+      - name: "9. Instalar Vercel CLI"
+        if: github.event_name == 'push'
+        run: npm install -g vercel@39
         working-directory: .
 
-      - name: "9. Deploy en Vercel"
+      - name: "10. Deploy en Vercel (--prebuilt)"
         if: github.event_name == 'push'
         id: deploy
         run: |
@@ -104,37 +163,27 @@ jobs:
             echo "Desplegando PREVIEW..."
           fi
 
-          # Paso A: vincular el proyecto Vercel y descargar config.
-          vercel pull \
+          # Vincular proyecto (sin descargar env vars que sobreescriban .env)
+          vercel link \
             --yes \
-            --environment=production \
             --token="${{ secrets.VERCEL_TOKEN }}"
 
-          # Paso B: 'vercel build' ejecuta el buildCommand de vercel.json
-          # que ya tiene EXPO_METRO_PLATFORM_WEB=1, por lo que el stub CJS
-          # de reanimated se aplica correctamente.
-          # El resultado queda en .vercel/output/ con el config.json correcto
-          # que incluye las rewrites (proxy /api/*) y los headers de vercel.json.
-          vercel build \
-            --prod \
-            --token="${{ secrets.VERCEL_TOKEN }}"
-
-          # Paso C: deploy con --prebuilt sube .vercel/output/ sin re-compilar.
-          DEPLOY_URL=$(vercel deploy \
+          # Deploy directo desde .vercel/output/ (prebuilt)
+          DEPLOY_OUTPUT=$(vercel deploy \
             --prebuilt \
             $PROD_FLAG \
-            --token="${{ secrets.VERCEL_TOKEN }}" \
-            2>&1 | grep -E 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
+            --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
 
+          echo "$DEPLOY_OUTPUT"
+
+          DEPLOY_URL=$(echo "$DEPLOY_OUTPUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
           echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
           echo "Deployed to: $DEPLOY_URL"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          EXPO_PUBLIC_API_URL: ${{ secrets.API_GATEWAY_URL }}
-          EXPO_PUBLIC_APP_ENV: production
 
-      - name: "10. Publicar resultado"
+      - name: "11. Publicar resultado"
         if: github.event_name == 'push'
         run: |
           echo "## Deploy Web - DomiLink" >> $GITHUB_STEP_SUMMARY

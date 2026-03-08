@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Random;
@@ -45,6 +46,37 @@ public class AuthService {
         this.jwtTokenProvider = jwtTokenProvider;
         this.passwordEncoder = passwordEncoder;
         this.firebaseService = firebaseService;
+    }
+
+    /**
+     * Inicializa los usuarios de prueba en memoria al arrancar el servicio.
+     * Esto garantiza que los test users existan aunque Cloud Run haya hecho
+     * un cold start o el contenedor haya sido reiniciado.
+     *
+     * Credenciales de prueba:
+     *   empresa@ejemplo.com    / password123  → rol COMPANY, estado ACTIVE
+     *   domiciliario@ejemplo.com / password123 → rol COURIER, estado ACTIVE
+     */
+    @PostConstruct
+    public void seedTestUsers() {
+        seedUser("empresa-demo-001",       "empresa@ejemplo.com",        "password123",
+                 "Empresa Demo",           User.UserRole.COMPANY,        User.UserStatus.ACTIVE);
+        seedUser("domiciliario-demo-001",  "domiciliario@ejemplo.com",   "password123",
+                 "Domiciliario Demo",      User.UserRole.COURIER,        User.UserStatus.ACTIVE);
+        log.info("Usuarios de prueba cargados en memoria: empresa@ejemplo.com, domiciliario@ejemplo.com");
+    }
+
+    private void seedUser(String id, String email, String rawPassword,
+                          String displayName, User.UserRole role, User.UserStatus status) {
+        if (usersByEmail.containsKey(email)) return; // ya existe, no sobreescribir
+        User u = new User(id, email, role);
+        u.setDisplayName(displayName);
+        u.setPasswordHash(passwordEncoder.encode(rawPassword));
+        u.setStatus(status);
+        u.setCreatedAt(LocalDateTime.now());
+        u.setUpdatedAt(LocalDateTime.now());
+        usersByEmail.put(email, u);
+        usersById.put(id, u);
     }
 
     /**

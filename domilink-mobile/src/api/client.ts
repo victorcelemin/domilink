@@ -31,10 +31,14 @@ const getLocalHost = () => {
 /**
  * Determina el baseURL correcto segun plataforma y entorno:
  *
- * WEB (siempre):
+ * WEB en produccion (Vercel, EXPO_PUBLIC_APP_ENV=production):
  *   → '' (vacio) — las peticiones /api/... son relativas al mismo origen.
  *   → Vercel intercepta /api/* y hace proxy al gateway de Cloud Run.
  *   → El browser nunca ve la URL de Cloud Run → CORS eliminado por diseno.
+ *
+ * WEB en desarrollo local (expo start --web):
+ *   → http://localhost:8080 — apunta directamente al gateway local.
+ *   → El proxy de Vercel no existe en local, se necesita la URL absoluta.
  *
  * MOVIL + produccion (EXPO_PUBLIC_API_URL definida):
  *   → URL completa del gateway. Las apps nativas no tienen restriccion CORS.
@@ -42,13 +46,17 @@ const getLocalHost = () => {
  * MOVIL/WEB + desarrollo local (sin EXPO_PUBLIC_API_URL):
  *   → Gateway local en :8080.
  */
+const IS_VERCEL_PROD = process.env.EXPO_PUBLIC_APP_ENV === 'production';
+
 const getBaseURL = (): string => {
-  // En web SIEMPRE usar rutas relativas para que el proxy de Vercel
-  // maneje el reenvio al gateway. Esto funciona tanto en dev web como
-  // en produccion Vercel — en dev web el proxy no existe pero el
-  // gateway local tampoco tiene CORS problem.
   if (Platform.OS === 'web') {
-    return '';
+    // En produccion (Vercel) usar rutas relativas → el proxy reenvía al gateway.
+    if (IS_VERCEL_PROD) {
+      return '';
+    }
+    // En desarrollo local apuntar directamente al gateway en localhost.
+    // El servidor local no tiene CORS issue porque origen y gateway comparten host.
+    return `http://localhost:8080`;
   }
 
   // Nativo con gateway de produccion configurado

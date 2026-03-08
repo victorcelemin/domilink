@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, RefreshControl, StatusBar, Alert, Switch, Animated,
+  TouchableOpacity, RefreshControl, StatusBar, Alert, Switch, Animated, Platform,
 } from 'react-native';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { orderApi, Order } from '../../api/orderApi';
@@ -72,6 +71,9 @@ export const CourierHomeScreen = ({ navigation }: any) => {
   }, [available, courier?.status]);
 
   const startTracking = async () => {
+    // expo-location no esta disponible en web
+    if (Platform.OS === 'web') return;
+    const Location = await import('expo-location');
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     locationIntervalRef.current = setInterval(async () => {
@@ -106,8 +108,13 @@ export const CourierHomeScreen = ({ navigation }: any) => {
 
     setAvailable(value);
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
-      await courierApi.updateLocation(loc?.coords.latitude ?? 0, loc?.coords.longitude ?? 0, value);
+      if (Platform.OS !== 'web') {
+        const Location = await import('expo-location');
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
+        await courierApi.updateLocation(loc?.coords.latitude ?? 0, loc?.coords.longitude ?? 0, value);
+      } else {
+        await courierApi.updateLocation(0, 0, value);
+      }
     } catch { /* ignorar */ }
   };
 

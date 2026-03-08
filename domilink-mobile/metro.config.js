@@ -1,6 +1,19 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
+// Detectar si estamos construyendo para web antes de que Metro arranque.
+// Cuando se llama `expo export --platform web` o `expo start --web`,
+// Metro puede resolver dependencias con platform=null desde dentro de
+// node_modules. Forzar la variable de entorno aqui garantiza que el
+// resolveRequest siempre aplique los stubs correctos sin depender de
+// que el usuario la haya exportado antes de correr el comando.
+if (
+  process.argv.some(a => a === '--platform' || a === 'web') ||
+  process.env.EXPO_METRO_PLATFORM_WEB === '1'
+) {
+  process.env.EXPO_METRO_PLATFORM_WEB = '1';
+}
+
 const config = getDefaultConfig(__dirname);
 
 // ── Stubs web: paquetes que solo tienen build ESM y rompen Metro web ─────────
@@ -9,15 +22,18 @@ const config = getDefaultConfig(__dirname);
 // Metro para web no lo transpila → "Unexpected token 'export'" en el bundle.
 // Lo sustituimos por un stub CJS que delega en el Animated de React Native.
 //
-// react-native-maps tampoco funciona en web → stub con placeholder visual.
+// react-native-maps, react-native-gesture-handler y expo-location tampoco
+// funcionan correctamente en web → stubs con implementaciones seguras.
 //
 // IMPORTANTE: Metro puede pasar platform=null para resolutions que vienen
 // de dentro de node_modules (e.g. gesture-handler → reanimated). Para esos
 // casos usamos EXPO_METRO_PLATFORM_WEB (seteado en vercel.json buildCommand)
 // como fallback, o detectamos via originModulePath que el build es web.
 const WEB_STUBS = {
-  'react-native-reanimated': require.resolve('./src/mocks/react-native-reanimated.web.js'),
-  'react-native-maps':       require.resolve('./src/mocks/react-native-maps.web.js'),
+  'react-native-reanimated':       require.resolve('./src/mocks/react-native-reanimated.web.js'),
+  'react-native-maps':             require.resolve('./src/mocks/react-native-maps.web.js'),
+  'react-native-gesture-handler':  require.resolve('./src/mocks/react-native-gesture-handler.web.js'),
+  'expo-location':                 require.resolve('./src/mocks/expo-location.web.js'),
 };
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {

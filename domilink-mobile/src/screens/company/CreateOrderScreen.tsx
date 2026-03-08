@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, StatusBar, Alert, ActivityIndicator,
+  TouchableOpacity, StatusBar, Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { orderApi, PaymentMode, PackageSize, PriceEstimate } from '../../api/orderApi';
 import { useAuth } from '../../context/AuthContext';
@@ -52,9 +51,11 @@ export const CreateOrderScreen = ({ navigation }: any) => {
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Centrar mapa en ubicacion actual
+  // Centrar mapa en ubicacion actual (solo nativo — maps no disponibles en web)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     (async () => {
+      const Location = await import('expo-location');
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -143,8 +144,86 @@ export const CreateOrderScreen = ({ navigation }: any) => {
     }
   };
 
-  // ── STEP: MAP ─────────────────────────────────────────────
+  // ── STEP: MAP (o formulario de direcciones en web) ────────────
   if (step === 'map') {
+    // En web los mapas no están disponibles — mostrar formulario de texto
+    if (Platform.OS === 'web') {
+      return (
+        <SafeAreaView style={styles.safe}>
+          <StatusBar barStyle="light-content" backgroundColor={Colors.companySection} />
+          <View style={styles.stepHeader}>
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Ionicons name="arrow-back" size={24} color={Colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.stepHeaderTitle}>Puntos del domicilio</Text>
+            <Text style={styles.stepCounter}>1/3</Text>
+          </View>
+
+          <ScrollView style={styles.stepScroll} contentContainerStyle={styles.stepContent} keyboardShouldPersistTaps="handled">
+            <View style={styles.webMapInfo}>
+              <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
+              <Text style={styles.webMapInfoText}>
+                Ingresa las direcciones manualmente. El mapa interactivo está disponible en la app móvil.
+              </Text>
+            </View>
+
+            <Input
+              label="Dirección de recogida"
+              placeholder="Calle 10 # 20-30, Bogotá"
+              leftIcon="location-outline"
+              value={pickup?.address ?? ''}
+              onChangeText={(text) => setPickup({ lat: 4.6097, lng: -74.0817, address: text })}
+              accentColor={Colors.secondary}
+            />
+            <Input
+              label="Dirección de entrega"
+              placeholder="Carrera 15 # 45-60, Bogotá"
+              leftIcon="navigate-outline"
+              value={delivery?.address ?? ''}
+              onChangeText={(text) => setDelivery({ lat: 4.6200, lng: -74.0650, address: text })}
+              accentColor={Colors.primary}
+            />
+
+            <View style={styles.webMapNote}>
+              <Ionicons name="map-outline" size={14} color={Colors.textTertiary} />
+              <Text style={styles.webMapNoteText}>
+                Las coordenadas aproximadas de Bogotá se usarán para el cálculo de distancia.
+              </Text>
+            </View>
+
+            {estimating && (
+              <View style={styles.estimateRow}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.estimateText}>Calculando precio...</Text>
+              </View>
+            )}
+            {estimate && !estimating && (
+              <View style={styles.estimateBox}>
+                <Text style={styles.estimateTitle}>
+                  Distancia estimada: {formatDistance(estimate.distanceKm)}
+                </Text>
+                <View style={styles.estimatePrices}>
+                  <Text style={styles.estimatePrice}>🏍 {formatCOP(estimate.motorcyclePrice)}</Text>
+                  <Text style={styles.estimatePrice}>🚲 {formatCOP(estimate.bicyclePrice)}</Text>
+                  <Text style={styles.estimatePrice}>🚗 {formatCOP(estimate.carPrice)}</Text>
+                </View>
+              </View>
+            )}
+
+            <Button
+              title="Continuar"
+              fullWidth
+              disabled={!pickup?.address || !delivery?.address}
+              onPress={() => setStep('details')}
+              style={{ backgroundColor: Colors.companySection, marginTop: 8 }}
+              icon={<Ionicons name="arrow-forward" size={18} color={Colors.white} />}
+            />
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
+
+    // Nativo: mapa interactivo completo
     return (
       <View style={styles.mapContainer}>
         <StatusBar barStyle="dark-content" />
@@ -484,6 +563,20 @@ const styles = StyleSheet.create({
 
   resetBtn: { alignItems: 'center', paddingTop: 10 },
   resetText: { ...Typography.caption, color: Colors.textSecondary, textDecorationLine: 'underline' },
+
+  // ── Web map fallback ──────────────────────────────────────────
+  webMapInfo: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: Colors.infoLight, borderRadius: 12,
+    padding: 14, marginBottom: 20,
+    borderWidth: 1, borderColor: Colors.infoBorder,
+  },
+  webMapInfoText: { ...Typography.caption, color: Colors.info, flex: 1, lineHeight: 18 },
+  webMapNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    marginBottom: 16, paddingHorizontal: 4,
+  },
+  webMapNoteText: { ...Typography.caption2, color: Colors.textTertiary, flex: 1, lineHeight: 16 },
 
   stepHeader: {
     flexDirection: 'row', alignItems: 'center',

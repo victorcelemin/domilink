@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TouchableOpacity,
-  StatusBar, Alert, Animated,
+  StatusBar, Alert, Animated, Platform,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { orderApi, Order } from '../../api/orderApi';
 import { courierApi } from '../../api/courierApi';
@@ -23,7 +22,7 @@ export const CourierDeliveryScreen = ({ route, navigation }: any) => {
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   // C4 FIX: guardar la suscripción para limpiarla al desmontar
-  const locationSubRef = useRef<Location.LocationSubscription | null>(null);
+  const locationSubRef = useRef<any>(null);
 
   useEffect(() => {
     loadOrder();
@@ -57,6 +56,9 @@ export const CourierDeliveryScreen = ({ route, navigation }: any) => {
   };
 
   const startLocationTracking = async () => {
+    // expo-location no esta disponible en web
+    if (Platform.OS === 'web') return;
+    const Location = await import('expo-location');
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
 
@@ -132,6 +134,84 @@ export const CourierDeliveryScreen = ({ route, navigation }: any) => {
   const targetCoords = isAssigned
     ? { latitude: order.pickupLatitude, longitude: order.pickupLongitude }
     : { latitude: order.deliveryLatitude, longitude: order.deliveryLongitude };
+
+  // En web mostramos un layout scrollable sin mapa de pantalla completa
+  if (Platform.OS === 'web') {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors.background }]}>
+        <StatusBar barStyle="light-content" backgroundColor={Colors.courierSection} />
+
+        <View style={styles.webHeader}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+          </TouchableOpacity>
+          <View style={styles.headerInfo}>
+            <Text style={[styles.headerTitle, { color: Colors.white }]}>
+              {isAssigned ? 'Ir a recoger' : 'En camino'}
+            </Text>
+            <Text style={[styles.headerSub, { color: 'rgba(255,255,255,0.75)' }]} numberOfLines={1}>
+              {isAssigned ? order.pickupAddress : order.deliveryAddress}
+            </Text>
+          </View>
+          <View style={[styles.paymentChip, { backgroundColor: isBase ? Colors.paymentBase : Colors.paymentPaid }]}>
+            <Text style={styles.paymentChipText}>{isBase ? 'BASE' : 'PAGO'}</Text>
+          </View>
+        </View>
+
+        <View style={styles.webMapPlaceholder}>
+          <MapView style={{ flex: 1 }} initialRegion={{ latitude: targetCoords.latitude, longitude: targetCoords.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}>
+            <Marker coordinate={{ latitude: order.pickupLatitude, longitude: order.pickupLongitude }} title="Recogida" pinColor={Colors.secondary} />
+            <Marker coordinate={{ latitude: order.deliveryLatitude, longitude: order.deliveryLongitude }} title={`Entregar a ${order.recipientName}`} pinColor={Colors.primary} />
+            <Polyline coordinates={[{ latitude: order.pickupLatitude, longitude: order.pickupLongitude }, { latitude: order.deliveryLatitude, longitude: order.deliveryLongitude }]} strokeColor={Colors.courierSection} strokeWidth={4} lineDashPattern={[10, 5]} />
+          </MapView>
+        </View>
+
+        <View style={[styles.bottomPanel, { position: 'relative', borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
+          {isBase && isInTransit && (
+            <View style={styles.baseWarning}>
+              <Ionicons name="cash-outline" size={18} color={Colors.paymentBase} />
+              <Text style={styles.baseWarningText}>
+                Recuerda cobrar {formatCOP(order.baseAmount ?? 0)} al entregar
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.earningsRow}>
+            <View>
+              <Text style={styles.earningsLabel}>Tus ganancias</Text>
+              <Animated.Text style={[styles.earningsValue, { transform: [{ scale: pulseAnim }] }]}>
+                {formatCOP(order.finalPrice)}
+              </Animated.Text>
+            </View>
+            <View style={styles.distanceInfo}>
+              <Ionicons name="navigate-outline" size={16} color={Colors.textSecondary} />
+              <Text style={styles.distanceText}>{formatDistance(order.distanceKm)}</Text>
+            </View>
+          </View>
+
+          {isInTransit && (
+            <View style={styles.recipientRow}>
+              <Ionicons name="person-outline" size={16} color={Colors.textSecondary} />
+              <Text style={styles.recipientText}>{order.recipientName} · {order.recipientPhone}</Text>
+            </View>
+          )}
+
+          {isAssigned && (
+            <Button title="Ya recogí el paquete" fullWidth size="lg" loading={actionLoading}
+              onPress={handleMarkPickup} style={{ backgroundColor: Colors.courierSection }}
+              icon={<Ionicons name="cube-outline" size={20} color={Colors.white} />}
+            />
+          )}
+          {isInTransit && (
+            <Button title="Confirmar entrega" fullWidth size="lg" loading={actionLoading}
+              onPress={handleMarkDelivered} style={{ backgroundColor: Colors.success }}
+              icon={<Ionicons name="checkmark-circle-outline" size={20} color={Colors.white} />}
+            />
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -237,6 +317,15 @@ export const CourierDeliveryScreen = ({ route, navigation }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  // Web header (no flotante, parte del flujo normal)
+  webHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.courierSection,
+    paddingHorizontal: 16, paddingVertical: 14, gap: 10,
+  },
+  webMapPlaceholder: { height: 220 },
+
   headerContainer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   header: {
     flexDirection: 'row', alignItems: 'center',

@@ -16,6 +16,24 @@ const React = require('react');
 
 const Animated = ReactNative.Animated;
 
+// ── Patch Animated to suppress useNativeDriver warnings on web ───────────────
+// RN's Animated warns when useNativeDriver:true is passed on web because the
+// native module is missing. Since this stub is web-only, we patch the timing
+// and spring factories to silently strip useNativeDriver from config objects.
+const _origTiming = Animated.timing;
+const _origSpring = Animated.spring;
+const _origDecay  = Animated.decay;
+const _stripNative = (cfg) => {
+  if (cfg && cfg.useNativeDriver) {
+    const { useNativeDriver, ...rest } = cfg;
+    return rest;
+  }
+  return cfg;
+};
+Animated.timing = (value, config) => _origTiming(value, _stripNative(config));
+Animated.spring  = (value, config) => _origSpring(value, _stripNative(config));
+Animated.decay   = (value, config) => _origDecay(value, _stripNative(config));
+
 // ── useSharedValue → plain ref-like object ────────────────────────────────────
 function useSharedValue(initial) {
   const ref = React.useRef(null);

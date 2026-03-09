@@ -272,11 +272,23 @@ export const CompanyHomeScreen = ({ navigation }: any) => {
               </View>
             </View>
             {activeOrders.map(order => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                onPress={() => navigation.navigate('OrderDetail', { orderId: order.id })}
-              />
+              <View key={order.id} style={styles.orderWithActions}>
+                <OrderCard
+                  order={order}
+                  onPress={() => navigation.navigate('OrderDetail', { orderId: order.id })}
+                />
+                {/* Botón de tracking (solo cuando tiene domiciliario asignado) */}
+                {(order.status === 'ASSIGNED' || order.status === 'IN_TRANSIT') && order.courierId && (
+                  <TouchableOpacity
+                    style={styles.trackBtn}
+                    onPress={() => navigation.navigate('OrderTracking', { orderId: order.id })}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="navigate" size={14} color={Colors.white} />
+                    <Text style={styles.trackBtnText}>Ver en mapa</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             ))}
           </View>
         )}
@@ -509,6 +521,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center', justifyContent: 'center',
   },
+
+  // ── Order + tracking ─────────────────────────────────────────
+  orderWithActions: { gap: 6, marginBottom: 2 },
+  trackBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: Colors.company,
+    borderRadius: 12, paddingVertical: 8,
+    marginBottom: 10,
+    ...Shadow.colored(Colors.company),
+  },
+  trackBtnText: { ...Typography.caption, color: Colors.white, fontWeight: '700' },
 
   // ── Section ───────────────────────────────────────────────────
   section: { marginTop: 4 },

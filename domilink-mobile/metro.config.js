@@ -1,70 +1,119 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
-// Detectar si estamos construyendo para web antes de que Metro arranque.
-// Cuando se llama `expo export --platform web` o `expo start --web`,
-// Metro puede resolver dependencias con platform=null desde dentro de
-// node_modules. Forzar la variable de entorno aqui garantiza que el
-// resolveRequest siempre aplique los stubs correctos sin depender de
-// que el usuario la haya exportado antes de correr el comando.
-if (
-  process.argv.some(a => a === '--platform' || a === 'web') ||
-  process.env.EXPO_METRO_PLATFORM_WEB === '1'
-) {
+// ── Deteccion de build web ────────────────────────────────────────────────────
+// Metro puede llamar al resolver con platform=null cuando la resolution viene
+// de dentro de node_modules. Usamos EXPO_METRO_PLATFORM_WEB como flag global.
+const isWebCLI =
+  process.argv.some(a => a === 'web') ||
+  process.env.EXPO_METRO_PLATFORM_WEB === '1';
+
+if (isWebCLI) {
   process.env.EXPO_METRO_PLATFORM_WEB = '1';
 }
 
 const config = getDefaultConfig(__dirname);
 
-// ── Stubs web: paquetes que solo tienen build ESM y rompen Metro web ─────────
-//
-// react-native-reanimated ~3.6 solo distribuye lib/module/ (ESM puro).
-// Metro para web no lo transpila → "Unexpected token 'export'" en el bundle.
-// Lo sustituimos por un stub CJS que delega en el Animated de React Native.
-//
-// react-native-maps, react-native-gesture-handler y expo-location tampoco
-// funcionan correctamente en web → stubs con implementaciones seguras.
-//
-// IMPORTANTE: Metro puede pasar platform=null para resolutions que vienen
-// de dentro de node_modules (e.g. gesture-handler → reanimated). Para esos
-// casos usamos EXPO_METRO_PLATFORM_WEB (seteado en vercel.json buildCommand)
-// como fallback, o detectamos via originModulePath que el build es web.
-const WEB_STUBS = {
-  'react-native-reanimated':       require.resolve('./src/mocks/react-native-reanimated.web.js'),
-  'react-native-maps':             require.resolve('./src/mocks/react-native-maps.web.js'),
-  'react-native-gesture-handler':  require.resolve('./src/mocks/react-native-gesture-handler.web.js'),
-  'expo-location':                 require.resolve('./src/mocks/expo-location.web.js'),
+// ── Rutas absolutas de los stubs web ─────────────────────────────────────────
+const STUB_REANIMATED = require.resolve('./src/mocks/react-native-reanimated.web.js');
+const STUB_MAPS       = require.resolve('./src/mocks/react-native-maps.web.js');
+const STUB_GESTURE    = require.resolve('./src/mocks/react-native-gesture-handler.web.js');
+const STUB_LOCATION   = require.resolve('./src/mocks/expo-location.web.js');
+
+// Directorio raiz de react-native-reanimated en node_modules
+const REANIMATED_ROOT = path.dirname(
+  require.resolve('react-native-reanimated/package.json')
+);
+const GESTURE_ROOT = path.dirname(
+  require.resolve('react-native-gesture-handler/package.json')
+);
+
+// ── Mapa de módulos por nombre exacto ────────────────────────────────────────
+const MODULE_STUBS = {
+  'react-native-reanimated':      STUB_REANIMATED,
+  'react-native-maps':            STUB_MAPS,
+  'react-native-gesture-handler': STUB_GESTURE,
+  'expo-location':                STUB_LOCATION,
 };
 
+// ── Resolver personalizado ────────────────────────────────────────────────────
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  // platform puede ser 'web', null, o undefined dependiendo de si la
-  // resolution viene de user-code vs node_modules internos.
   const isWebBuild =
     platform === 'web' ||
     process.env.EXPO_METRO_PLATFORM_WEB === '1';
 
-  if (isWebBuild && WEB_STUBS[moduleName]) {
-    return { filePath: WEB_STUBS[moduleName], type: 'sourceFile' };
+  if (!isWebBuild) {
+    return context.resolveRequest(context, moduleName, platform);
   }
-  return context.resolveRequest(context, moduleName, platform);
+
+  // 1. Interceptar por nombre exacto del paquete
+  if (MODULE_STUBS[moduleName]) {
+    return { filePath: MODULE_STUBS[moduleName], type: 'sourceFile' };
+  }
+
+  // 2. Interceptar sub-paths de react-native-reanimated
+  //    (e.g. 'react-native-reanimated/lib/module/index')
+  if (
+    moduleName.startsWith('react-native-reanimated/') ||
+    moduleName.startsWith('react-native-reanimated\\')
+  ) {
+    return { filePath: STUB_REANIMATED, type: 'sourceFile' };
+  }
+
+  // 3. Interceptar sub-paths de react-native-gesture-handler
+  if (
+    moduleName.startsWith('react-native-gesture-handler/') ||
+    moduleName.startsWith('react-native-gesture-handler\\')
+  ) {
+    return { filePath: STUB_GESTURE, type: 'sourceFile' };
+  }
+
+  // Resolver normal para todo lo demás
+  try {
+    return context.resolveRequest(context, moduleName, platform);
+  } catch (e) {
+    // Si la resolución normal falla para un módulo dentro de node_modules
+    // de reanimated o gesture-handler, redirigir al stub
+    if (context.originModulePath) {
+      const origin = context.originModulePath.replace(/\\/g, '/');
+      if (origin.includes('react-native-reanimated/')) {
+        return { filePath: STUB_REANIMATED, type: 'sourceFile' };
+      }
+      if (origin.includes('react-native-gesture-handler/')) {
+        return { filePath: STUB_GESTURE, type: 'sourceFile' };
+      }
+    }
+    throw e;
+  }
 };
 
-// ── Deshabilitar resolucion por campo "exports" de package.json ───────────────
+// ── Bloquear directorios ESM completos en web ─────────────────────────────────
+// Metro permite bloquear rutas via blockList. Bloqueamos el directorio
+// lib/module de reanimated para que Metro NUNCA intente cargar archivos ESM
+// desde allí — en su lugar el resolveRequest los redirige al stub.
+// NOTE: exclusionList no está en el top-level de metro-config; está en
+//       metro-config/src/defaults/exclusionList
+const exclusionList = require('metro-config/src/defaults/exclusionList');
+config.resolver.blockList = exclusionList([
+  // Bloquear todos los archivos dentro de lib/module de reanimated
+  new RegExp(
+    REANIMATED_ROOT.replace(/\\/g, '\\\\').replace(/\//g, '[\\/\\\\]') +
+    '[\\/\\\\]lib[\\/\\\\]module[\\/\\\\].*'
+  ),
+]);
+
+// ── Deshabilitar resolución por campo "exports" de package.json ───────────────
 // Algunos paquetes exponen puntos de entrada ESM-only a traves de "exports".
-// Metro para web no puede manejarlos y produce "Unexpected token 'export'".
 config.resolver.unstable_enablePackageExports = false;
 
 // ── Extensiones adicionales ───────────────────────────────────────────────────
-// Permite que Metro resuelva archivos .cjs y .mjs (formatos duales CJS/ESM).
 config.resolver.sourceExts = [
   ...config.resolver.sourceExts,
   'cjs',
   'mjs',
 ];
 
-// ── Condiciones de resolucion CommonJS primero ────────────────────────────────
-// Prioriza la entrada "require" (CJS) sobre "import" (ESM) en package.json.
-// Evita que Metro cargue el entry point ESM de paquetes dual-format.
+// ── Condiciones de resolución CommonJS primero ────────────────────────────────
 config.resolver.unstable_conditionNames = ['require', 'default'];
 
 // ── Transformador ─────────────────────────────────────────────────────────────
@@ -73,8 +122,6 @@ config.transformer = {
   unstable_allowRequireContext: true,
   getTransformOptions: async () => ({
     transform: {
-      // inlineRequires mejora el tiempo de inicio y evita ESM sin transpilar
-      // en el bundle final al convertir imports en requires inline.
       inlineRequires: true,
     },
   }),

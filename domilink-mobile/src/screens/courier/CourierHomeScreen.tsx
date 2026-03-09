@@ -147,7 +147,8 @@ export const CourierHomeScreen = ({ navigation }: any) => {
 
   const webNavItems = [
     { key: 'home',     label: 'Inicio',         icon: 'home-outline' as const,    iconActive: 'home' as const,           onPress: () => {} },
-    { key: 'orders',   label: 'Mis entregas',    icon: 'list-outline' as const,    iconActive: 'list' as const,           onPress: () => {}, badge: activeOrder ? 1 : 0 },
+    { key: 'orders',   label: 'Mis entregas',    icon: 'list-outline' as const,    iconActive: 'list' as const,           onPress: () => navigation.navigate('DeliveryHistory'), badge: activeOrder ? 1 : 0 },
+    { key: 'wallet',   label: 'Wallet',          icon: 'wallet-outline' as const,  iconActive: 'wallet' as const,         onPress: () => navigation.navigate('Wallet') },
     { key: 'available',label: 'Disponibles',     icon: 'flash-outline' as const,   iconActive: 'flash' as const,          onPress: () => {}, badge: pendingOrders.length },
     { key: 'profile',  label: 'Mi perfil',       icon: 'person-outline' as const,  iconActive: 'person' as const,         onPress: () => navigation.navigate('CourierProfile') },
   ];
@@ -296,6 +297,39 @@ export const CourierHomeScreen = ({ navigation }: any) => {
             <Text style={[styles.statValue, { color: Colors.secondary }]}>{pendingOrders.length}</Text>
             <Text style={styles.statLabel}>Disponibles</Text>
           </View>
+        </View>
+
+        {/* ── Accesos rápidos: Wallet e Historial ── */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => navigation.navigate('Wallet')}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.quickActionIcon, { backgroundColor: Colors.courier + '18' }]}>
+              <Ionicons name="wallet-outline" size={20} color={Colors.courier} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickActionTitle}>Mi Wallet</Text>
+              <Text style={styles.quickActionDesc}>Deuda y pagos</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => navigation.navigate('DeliveryHistory')}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.quickActionIcon, { backgroundColor: Colors.company + '15' }]}>
+              <Ionicons name="receipt-outline" size={20} color={Colors.company} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickActionTitle}>Historial</Text>
+              <Text style={styles.quickActionDesc}>Todas mis entregas</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
         </View>
 
         {/* ── Pedido activo ── */}
@@ -574,6 +608,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
   },
   sectionBadgeText: { ...Typography.caption2, color: Colors.white, fontWeight: '800' },
+
+  // ── Quick actions ─────────────────────────────────────────────
+  quickActions: { gap: 10, marginBottom: 20 },
+  quickActionCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.white,
+    borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: Colors.border,
+    ...Shadow.small,
+  },
+  quickActionIcon: {
+    width: 42, height: 42, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  quickActionTitle: { ...Typography.subtitle2, color: Colors.textPrimary },
+  quickActionDesc: { ...Typography.caption, color: Colors.textTertiary },
 
   // ── Empty state ───────────────────────────────────────────────
   empty: { alignItems: 'center', paddingVertical: 52, gap: 10 },

@@ -1,6 +1,7 @@
 package com.domilink.courier.model;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -34,6 +35,49 @@ public class Courier {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    // ── Wallet / sistema de cobro ──────────────────────────────────────────────
+    /** Deuda acumulada del dia actual en COP (comision por uso de plataforma). */
+    private double dailyDebt;
+    /** Fecha de la ultima vez que se reseto la deuda diaria (YYYY-MM-DD). */
+    private String lastDebtResetDate;
+    /** true = cuenta bloqueada por deuda no pagada del dia anterior. */
+    private boolean blockedByDebt;
+    /** Historial de pagos al wallet (ultimos 30). */
+    private List<WalletTransaction> walletHistory;
+
+    /**
+     * Registro de transaccion del wallet del domiciliario.
+     */
+    public static class WalletTransaction {
+        private String id;
+        private String type;       // DEBIT (cargo deuda) | PAYMENT (pago realizado)
+        private double amount;
+        private String description;
+        private LocalDateTime timestamp;
+
+        public WalletTransaction() {}
+
+        public WalletTransaction(String id, String type, double amount,
+                                  String description, LocalDateTime timestamp) {
+            this.id = id;
+            this.type = type;
+            this.amount = amount;
+            this.description = description;
+            this.timestamp = timestamp;
+        }
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        public double getAmount() { return amount; }
+        public void setAmount(double amount) { this.amount = amount; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        public LocalDateTime getTimestamp() { return timestamp; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    }
+
     public enum VehicleType {
         MOTORCYCLE,
         BICYCLE,
@@ -61,6 +105,10 @@ public class Courier {
         this.available = false;
         this.rating = 0.0;
         this.totalDeliveries = 0;
+        this.dailyDebt = 0.0;
+        this.blockedByDebt = false;
+        this.walletHistory = new ArrayList<>();
+        this.lastDebtResetDate = java.time.LocalDate.now().toString();
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
@@ -138,4 +186,20 @@ public class Courier {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    // Wallet getters/setters
+    public double getDailyDebt() { return dailyDebt; }
+    public void setDailyDebt(double dailyDebt) { this.dailyDebt = dailyDebt; }
+
+    public String getLastDebtResetDate() { return lastDebtResetDate; }
+    public void setLastDebtResetDate(String lastDebtResetDate) { this.lastDebtResetDate = lastDebtResetDate; }
+
+    public boolean isBlockedByDebt() { return blockedByDebt; }
+    public void setBlockedByDebt(boolean blockedByDebt) { this.blockedByDebt = blockedByDebt; }
+
+    public List<WalletTransaction> getWalletHistory() {
+        if (walletHistory == null) walletHistory = new ArrayList<>();
+        return walletHistory;
+    }
+    public void setWalletHistory(List<WalletTransaction> walletHistory) { this.walletHistory = walletHistory; }
 }

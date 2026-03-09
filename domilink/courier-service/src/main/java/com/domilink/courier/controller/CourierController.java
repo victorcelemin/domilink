@@ -18,14 +18,17 @@ import java.util.Map;
  * Controlador REST del Courier Service.
  *
  * Endpoints:
- * POST  /api/couriers              - Crear perfil domiciliario (rol: COURIER)
- * GET   /api/couriers/me           - Mi perfil (rol: COURIER)
- * GET   /api/couriers/available    - Domiciliarios disponibles (rol: COMPANY, ADMIN)
- * GET   /api/couriers/{id}         - Detalle domiciliario (autenticado)
- * PUT   /api/couriers/location     - Actualizar ubicacion en tiempo real (rol: COURIER)
- * PUT   /api/couriers/documents    - Subir URLs de documentos (rol: COURIER)
- * GET   /api/couriers/admin/all    - Todos los domiciliarios (rol: ADMIN)
- * PUT   /api/couriers/{id}/status  - Cambiar estado (rol: ADMIN)
+ * POST  /api/couriers                     - Crear perfil domiciliario (rol: COURIER)
+ * GET   /api/couriers/me                  - Mi perfil (rol: COURIER)
+ * GET   /api/couriers/available           - Domiciliarios disponibles (rol: COMPANY, ADMIN)
+ * GET   /api/couriers/{id}                - Detalle domiciliario (autenticado)
+ * PUT   /api/couriers/location            - Actualizar ubicacion en tiempo real (rol: COURIER)
+ * PUT   /api/couriers/documents           - Subir URLs de documentos (rol: COURIER)
+ * GET   /api/couriers/admin/all           - Todos los domiciliarios (rol: ADMIN)
+ * PUT   /api/couriers/{id}/status         - Cambiar estado (rol: ADMIN)
+ * GET   /api/couriers/{id}/location       - Ubicacion actual del domiciliario (rol: COMPANY, ADMIN)
+ * GET   /api/couriers/wallet              - Estado del wallet propio (rol: COURIER)
+ * POST  /api/couriers/wallet/pay          - Pagar deuda diaria (rol: COURIER)
  */
 @RestController
 @RequestMapping("/api/couriers")
@@ -70,7 +73,6 @@ public class CourierController {
     public ResponseEntity<List<Courier>> getAvailableCouriers(
             @RequestHeader("X-User-Role") String role) {
 
-        // Solo empresas y admins pueden ver la lista de disponibles
         if (!"COMPANY".equals(role) && !"ADMIN".equals(role)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -103,7 +105,6 @@ public class CourierController {
 
     /**
      * Registra URLs de documentos de verificacion.
-     * Los archivos deben subirse primero a Cloud Storage.
      */
     @PutMapping("/documents")
     public ResponseEntity<Courier> uploadDocuments(
@@ -164,6 +165,101 @@ public class CourierController {
 
         Courier updated = courierService.updateCourierStatus(
                 id, newStatus, body.get("rejectionReason"), role);
+        return ResponseEntity.ok(updated);
+    }
+
+    // ── TRACKING ──────────────────────────────────────────────────────────────
+
+    /**
+     * Retorna la ubicacion en tiempo real de un domiciliario.
+     * Usado por empresas para trackear su pedido en el mapa.
+     */
+    @GetMapping("/{id}/location")
+    public ResponseEntity<Map<String, Object>> getCourierLocation(
+            @PathVariable String id,
+            @RequestHeader("X-User-Role") String role) {
+
+        if (!"COMPANY".equals(role) && !"ADMIN".equals(role) && !"COURIER".equals(role)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Map<String, Object> location = courierService.getCourierLocation(id);
+        return ResponseEntity.ok(location);
+    }
+
+    // ── WALLET ────────────────────────────────────────────────────────────────
+
+    /**
+     * Retorna el estado actual del wallet del domiciliario autenticado.
+     * Incluye deuda diaria, estado de bloqueo e historial.
+     */
+    @GetMapping("/wallet")
+    public ResponseEntity<Courier> getMyWallet(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        if (!"COURIER".equals(role)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Courier courier = courierService.getWallet(userId);
+        return ResponseEntity.ok(courier);
+    }
+
+    /**
+     * El domiciliario paga su deuda diaria.
+     * Body: { "amount": 5000 }
+     */
+    @PostMapping("/wallet/pay")
+    public ResponseEntity<Courier> payDebt(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        if (!"COURIER".equals(role)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Object amountObj = body.get("amount");
+        if (amountObj == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
+
+        double amount;
+        try {
+            amount = ((Number) amountObj).doubleValue();
+        } catch (ClassCastException e) {
+            return ResponseEntity.badRequest().body(null);
+        }
+
+        Courier updated = courierService.payDailyDebt(userId, amount);
+        return ResponseEntity.ok(updated);
+    }
+
+    /**
+     * Endpoint interno: registra una entrega completada en el wallet del domiciliario.
+     * Llamado por el Order Service cuando un pedido pasa a DELIVERED.
+     * No requiere autenticacion de usuario (llamada interna entre microservicios).
+     */
+    @PostMapping("/{id}/wallet/delivery")
+    public ResponseEntity<Courier> recordDeliveryEarning(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> body) {
+
+        Object amountObj = body.get("orderAmount");
+        Object orderIdObj = body.get("orderId");
+        if (amountObj == null || orderIdObj == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        double amount;
+        try {
+            amount = ((Number) amountObj).doubleValue();
+        } catch (ClassCastException e) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        Courier updated = courierService.recordDeliveryEarning(id, amount, orderIdObj.toString());
         return ResponseEntity.ok(updated);
     }
 

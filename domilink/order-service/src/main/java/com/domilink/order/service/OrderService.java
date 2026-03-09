@@ -161,6 +161,7 @@ public class OrderService {
 
     /**
      * El domiciliario confirma que entrego el paquete.
+     * Tambien registra la comision en el wallet del domiciliario (llamada async al courier-service).
      */
     public Order markAsDelivered(String orderId, String courierUserId) {
         Order order = getOrderAndValidateCourier(orderId, courierUserId);
@@ -175,6 +176,26 @@ public class OrderService {
 
         Order updated = orderRepository.save(order);
         log.info("Pedido {} ENTREGADO por domiciliario {}", orderId, courierUserId);
+
+        // Notificar al courier-service para registrar comision en el wallet
+        final String courierId = order.getCourierId();
+        final double finalPrice = order.getFinalPrice();
+        if (courierId != null) {
+            try {
+                webClientBuilder.build()
+                        .post()
+                        .uri(courierServiceUrl + "/api/couriers/" + courierId + "/wallet/delivery")
+                        .bodyValue(Map.of("orderAmount", finalPrice, "orderId", orderId))
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .subscribe(
+                            v -> log.info("Comision registrada para domiciliario {}", courierId),
+                            err -> log.warn("No se pudo registrar comision para domiciliario {}: {}", courierId, err.getMessage())
+                        );
+            } catch (Exception e) {
+                log.warn("Error al notificar comision al courier-service: {}", e.getMessage());
+            }
+        }
 
         return updated;
     }
@@ -259,6 +280,14 @@ public class OrderService {
 
     public List<Order> getOrdersByCourier(String courierId) {
         return orderRepository.findByCourierId(courierId);
+    }
+
+    public List<Order> getOrdersByCompanyUserId(String userId) {
+        return orderRepository.findByCompanyUserId(userId);
+    }
+
+    public List<Order> getOrdersByCourierUserId(String userId) {
+        return orderRepository.findByCourierUserId(userId);
     }
 
     public List<Order> getPendingOrders() {

@@ -61,6 +61,22 @@ public class InMemoryOrderRepository implements OrderRepository {
     }
 
     @Override
+    public List<Order> findByCompanyUserId(String companyUserId) {
+        return store.values().stream()
+                .filter(o -> companyUserId.equals(o.getCompanyUserId()))
+                .sorted(Comparator.comparing(Order::getCreatedAt).reversed())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Order> findByCourierUserId(String courierUserId) {
+        return store.values().stream()
+                .filter(o -> courierUserId.equals(o.getCourierUserId()))
+                .sorted(Comparator.comparing(Order::getCreatedAt).reversed())
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public void deleteById(String id) {
         store.remove(id);
     }

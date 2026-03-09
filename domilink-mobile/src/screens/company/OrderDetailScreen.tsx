@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, StatusBar, Alert,
+  TouchableOpacity, StatusBar, Alert, Platform,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { orderApi, Order } from '../../api/orderApi';
 import { useAuth } from '../../context/AuthContext';
@@ -36,9 +35,17 @@ export const OrderDetailScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(0);
   const [actionLoading, setActionLoading] = useState(false);
+  const [MapComponents, setMapComponents] = useState<any>(null);
 
   // Modal de cancelación (reemplaza Alert.prompt iOS-only)
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
+
+  // Carga MapView de forma lazy solo en nativo (evita el error ESM en web)
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      import('react-native-maps').then((mod) => setMapComponents(mod)).catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     loadOrder();
@@ -130,33 +137,52 @@ export const OrderDetailScreen = ({ route, navigation }: any) => {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
 
-        {/* Mapa — sin PROVIDER_GOOGLE (usa OSM gratis en Android, Apple Maps en iOS) */}
+        {/* Mapa — lazy load en nativo, tarjeta de ruta en web */}
         <View style={styles.mapCard}>
-          <MapView
-            style={styles.map}
-            initialRegion={{
-              latitude: (order.pickupLatitude + order.deliveryLatitude) / 2,
-              longitude: (order.pickupLongitude + order.deliveryLongitude) / 2,
-              latitudeDelta: Math.abs(order.pickupLatitude - order.deliveryLatitude) * 2 + 0.02,
-              longitudeDelta: Math.abs(order.pickupLongitude - order.deliveryLongitude) * 2 + 0.02,
-            }}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
-          >
-            <Marker coordinate={{ latitude: order.pickupLatitude, longitude: order.pickupLongitude }}
-              title="Recogida" pinColor={Colors.secondary} />
-            <Marker coordinate={{ latitude: order.deliveryLatitude, longitude: order.deliveryLongitude }}
-              title="Entrega" pinColor={Colors.primary} />
-            <Polyline
-              coordinates={[
-                { latitude: order.pickupLatitude, longitude: order.pickupLongitude },
-                { latitude: order.deliveryLatitude, longitude: order.deliveryLongitude },
-              ]}
-              strokeColor={accentColor} strokeWidth={3} lineDashPattern={[8, 4]}
-            />
-          </MapView>
+          {MapComponents ? (() => {
+            const { default: RNMapView, Marker, Polyline } = MapComponents;
+            return (
+              <RNMapView
+                style={styles.map}
+                initialRegion={{
+                  latitude: (order.pickupLatitude + order.deliveryLatitude) / 2,
+                  longitude: (order.pickupLongitude + order.deliveryLongitude) / 2,
+                  latitudeDelta: Math.abs(order.pickupLatitude - order.deliveryLatitude) * 2 + 0.02,
+                  longitudeDelta: Math.abs(order.pickupLongitude - order.deliveryLongitude) * 2 + 0.02,
+                }}
+                scrollEnabled={false}
+                zoomEnabled={false}
+                pitchEnabled={false}
+                rotateEnabled={false}
+              >
+                <Marker coordinate={{ latitude: order.pickupLatitude, longitude: order.pickupLongitude }}
+                  title="Recogida" pinColor={Colors.secondary} />
+                <Marker coordinate={{ latitude: order.deliveryLatitude, longitude: order.deliveryLongitude }}
+                  title="Entrega" pinColor={Colors.primary} />
+                <Polyline
+                  coordinates={[
+                    { latitude: order.pickupLatitude, longitude: order.pickupLongitude },
+                    { latitude: order.deliveryLatitude, longitude: order.deliveryLongitude },
+                  ]}
+                  strokeColor={accentColor} strokeWidth={3} lineDashPattern={[8, 4]}
+                />
+              </RNMapView>
+            );
+          })() : (
+            <View style={styles.webMapFallback}>
+              <Ionicons name="map-outline" size={32} color={accentColor} />
+              <View style={styles.webRouteRow}>
+                <View style={[styles.webRouteDot, { backgroundColor: Colors.secondary }]} />
+                <Text style={styles.webRouteText} numberOfLines={1}>{order.pickupAddress}</Text>
+              </View>
+              <View style={styles.webRouteLine} />
+              <View style={styles.webRouteRow}>
+                <View style={[styles.webRouteDot, { backgroundColor: Colors.primary }]} />
+                <Text style={styles.webRouteText} numberOfLines={1}>{order.deliveryAddress}</Text>
+              </View>
+              <Text style={styles.webRouteKm}>{order.distanceKm.toFixed(1)} km</Text>
+            </View>
+          )}
         </View>
 
         {/* Barra de progreso */}
@@ -274,6 +300,17 @@ export const OrderDetailScreen = ({ route, navigation }: any) => {
           </View>
         )}
 
+        {/* Botón tracking - empresa ve domiciliario en mapa */}
+        {isCompany && (order.status === 'ASSIGNED' || order.status === 'IN_TRANSIT') && order.courierId && (
+          <Button
+            title="Ver domiciliario en mapa"
+            fullWidth
+            onPress={() => navigation.navigate('OrderTracking', { orderId: order.id })}
+            style={{ marginBottom: 10, backgroundColor: Colors.company }}
+            icon={<Ionicons name="navigate" size={18} color={Colors.white} />}
+          />
+        )}
+
         {/* Botón cancelar */}
         {isCompany && order.status === 'PENDING' && (
           <Button
@@ -318,6 +355,15 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 16, paddingBottom: 40 },
   mapCard: { borderRadius: 18, overflow: 'hidden', height: 200, marginBottom: 16, ...Shadow.medium },
   map: { flex: 1 },
+  webMapFallback: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.background, padding: 16, gap: 6,
+  },
+  webRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  webRouteDot: { width: 10, height: 10, borderRadius: 5 },
+  webRouteText: { ...Typography.caption, color: Colors.textPrimary, flex: 1 },
+  webRouteLine: { width: 1, height: 10, backgroundColor: Colors.border, marginLeft: 4 },
+  webRouteKm: { ...Typography.caption2, color: Colors.textTertiary, marginTop: 4 },
   progressCard: { backgroundColor: Colors.white, borderRadius: 16, padding: 16, marginBottom: 16, ...Shadow.small },
   progressItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   progressIconCol: { alignItems: 'center', width: 32 },

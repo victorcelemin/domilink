@@ -11,6 +11,14 @@ export interface CreateCourierPayload {
   vehicleModel?: string;
 }
 
+export interface WalletTransaction {
+  id: string;
+  type: 'DEBIT' | 'PAYMENT';
+  amount: number;
+  description: string;
+  timestamp: string;
+}
+
 export interface Courier {
   id: string;
   userId: string;
@@ -28,6 +36,21 @@ export interface Courier {
   currentLongitude: number;
   rating: number;
   totalDeliveries: number;
+  // Wallet
+  dailyDebt: number;
+  lastDebtResetDate?: string;
+  blockedByDebt: boolean;
+  walletHistory?: WalletTransaction[];
+}
+
+export interface CourierLocation {
+  courierId: string;
+  latitude: number;
+  longitude: number;
+  available: boolean;
+  updatedAt: string | null;
+  name: string;
+  vehicleType: string | null;
 }
 
 export const courierApi = {
@@ -39,4 +62,24 @@ export const courierApi = {
 
   updateLocation: (latitude: number, longitude: number, available: boolean) =>
     apiClient.put('/api/couriers/location', { latitude, longitude, available }),
+
+  getById: (id: string) =>
+    apiClient.get<Courier>(`/api/couriers/${id}`),
+
+  getAvailable: () =>
+    apiClient.get<Courier[]>('/api/couriers/available'),
+
+  /** Obtiene la ubicacion en tiempo real de un domiciliario (para tracking en mapa). */
+  getCourierLocation: (courierId: string) =>
+    apiClient.get<CourierLocation>(`/api/couriers/${courierId}/location`),
+
+  // ── Wallet ────────────────────────────────────────────────────────────────
+
+  /** Estado del wallet: deuda diaria, historial, estado de bloqueo. */
+  getWallet: () =>
+    apiClient.get<Courier>('/api/couriers/wallet'),
+
+  /** Pagar la deuda diaria. amount en COP. */
+  payDebt: (amount: number) =>
+    apiClient.post<Courier>('/api/couriers/wallet/pay', { amount }),
 };

@@ -21,5 +21,9 @@ public interface OrderRepository {
 
     List<Order> findByCompanyIdAndStatus(String companyId, Order.OrderStatus status);
 
+    List<Order> findByCompanyUserId(String companyUserId);
+
+    List<Order> findByCourierUserId(String courierUserId);
+
     void deleteById(String id);
 }

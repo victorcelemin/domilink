@@ -62,9 +62,12 @@ public class OrderController {
 
     /**
      * Lista pedidos segun el rol:
-     * - COMPANY: sus propios pedidos
-     * - COURIER: sus pedidos asignados
+     * - COMPANY: sus propios pedidos (por companyId si disponible, sino por userId)
+     * - COURIER: sus pedidos asignados (por courierId si disponible, sino por userId)
      * - ADMIN: todos los pedidos
+     *
+     * Nota: X-Company-Id y X-Courier-Id son opcionales y se setean despues del login.
+     * Si no estan disponibles, se usa el userId como fallback.
      */
     @GetMapping
     public ResponseEntity<List<Order>> getOrders(
@@ -77,17 +80,19 @@ public class OrderController {
 
         switch (role) {
             case "COMPANY" -> {
-                if (companyId != null) {
+                if (companyId != null && !companyId.isBlank()) {
                     orders = orderService.getOrdersByCompany(companyId);
                 } else {
-                    return ResponseEntity.badRequest().build();
+                    // Fallback: buscar por userId de empresa
+                    orders = orderService.getOrdersByCompanyUserId(userId);
                 }
             }
             case "COURIER" -> {
-                if (courierId != null) {
+                if (courierId != null && !courierId.isBlank()) {
                     orders = orderService.getOrdersByCourier(courierId);
                 } else {
-                    return ResponseEntity.badRequest().build();
+                    // Fallback: buscar por userId del domiciliario
+                    orders = orderService.getOrdersByCourierUserId(userId);
                 }
             }
             case "ADMIN" -> orders = orderService.getAllOrders();

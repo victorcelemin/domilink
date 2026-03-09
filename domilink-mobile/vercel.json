@@ -1,7 +1,8 @@
 {
   "version": 2,
-  "name": "domilink-web",
   "outputDirectory": "dist",
+  "buildCommand": "node scripts/patch-reanimated.js && npx expo export --platform web --output-dir dist --clear",
+  "installCommand": "npm ci",
   "framework": null,
 
   "rewrites": [
@@ -19,7 +20,7 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Access-Control-Allow-Origin",      "value": "https://domilink-mobile.vercel.app" },
+        { "key": "Access-Control-Allow-Origin",      "value": "*" },
         { "key": "Access-Control-Allow-Methods",     "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH" },
         { "key": "Access-Control-Allow-Headers",     "value": "Content-Type,Authorization,X-User-Id,X-User-Role,X-User-Email,X-Company-Id,X-Courier-Id" },
         { "key": "Access-Control-Max-Age",           "value": "3600" }
@@ -47,6 +48,7 @@
   ],
 
   "env": {
-    "EXPO_PUBLIC_APP_ENV": "production"
+    "EXPO_PUBLIC_APP_ENV": "production",
+    "EXPO_METRO_PLATFORM_WEB": "1"
   }
 }

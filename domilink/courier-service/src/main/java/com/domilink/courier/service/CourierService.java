@@ -4,6 +4,7 @@ import com.domilink.courier.dto.CreateCourierRequest;
 import com.domilink.courier.dto.UpdateLocationRequest;
 import com.domilink.courier.model.Courier;
 import com.domilink.courier.repository.CourierRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,38 @@ public class CourierService {
 
     public CourierService(CourierRepository courierRepository) {
         this.courierRepository = courierRepository;
+    }
+
+    /**
+     * Siembra el domiciliario demo al arrancar el servicio.
+     * Debe coincidir con el usuario "domiciliario-demo-001" del auth-service.
+     * Esto garantiza que GET /api/couriers/me no devuelva 400 para el usuario demo.
+     */
+    @PostConstruct
+    public void seedDemoData() {
+        final String demoUserId    = "domiciliario-demo-001";
+        final String demoCourierId = "courier-demo-001";
+        final String demoDoc       = "1234567890";
+
+        if (courierRepository.findByUserId(demoUserId).isPresent()) {
+            log.info("Domiciliario demo ya existe, omitiendo seed.");
+            return;
+        }
+
+        Courier demo = new Courier(demoCourierId, demoUserId, "Domiciliario", "Demo", demoDoc);
+        demo.setPhone("+57 300 000 0002");
+        demo.setEmail("domiciliario@ejemplo.com");
+        demo.setVehicleType(Courier.VehicleType.MOTORCYCLE);
+        demo.setVehiclePlate("ABC123");
+        demo.setVehicleModel("Honda CB 125");
+        demo.setStatus(Courier.CourierStatus.ACTIVE);
+        demo.setAvailable(true);
+        // Ubicación inicial en Bogotá (Chapinero)
+        demo.setCurrentLatitude(4.6482837);
+        demo.setCurrentLongitude(-74.0634715);
+        courierRepository.save(demo);
+        log.info("Domiciliario demo sembrado: {} {} (userId: {})",
+                demo.getFirstName(), demo.getLastName(), demoUserId);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.domilink.company.service;
 import com.domilink.company.dto.CreateCompanyRequest;
 import com.domilink.company.model.Company;
 import com.domilink.company.repository.CompanyRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,34 @@ public class CompanyService {
 
     public CompanyService(CompanyRepository companyRepository) {
         this.companyRepository = companyRepository;
+    }
+
+    /**
+     * Siembra la empresa demo al arrancar el servicio.
+     * Debe coincidir con el usuario "empresa-demo-001" del auth-service.
+     * Esto garantiza que GET /api/companies/me no devuelva 400 para el usuario demo.
+     */
+    @PostConstruct
+    public void seedDemoData() {
+        final String demoUserId  = "empresa-demo-001";
+        final String demoCompanyId = "company-demo-001";
+        final String demoNit     = "900123456-7";
+
+        if (companyRepository.findByUserId(demoUserId).isPresent()) {
+            log.info("Empresa demo ya existe, omitiendo seed.");
+            return;
+        }
+
+        Company demo = new Company(demoCompanyId, demoUserId, "Empresa Demo DomiLink", demoNit, "empresa@ejemplo.com");
+        demo.setPhone("+57 300 000 0001");
+        demo.setAddress("Calle 50 # 10-20, Chapinero");
+        demo.setCity("Bogotá");
+        demo.setLatitude(4.6482837);
+        demo.setLongitude(-74.0634715);
+        demo.setDescription("Empresa de prueba para demostrar las funcionalidades de DomiLink.");
+        demo.setStatus(Company.CompanyStatus.ACTIVE);
+        companyRepository.save(demo);
+        log.info("Empresa demo sembrada: {} (userId: {})", demo.getName(), demoUserId);
     }
 
     /**

@@ -1,27 +1,19 @@
 # ============================================================
-# DomiLink - Web: Build Expo + Deploy en Vercel (GRATUITO)
+# DomiLink - Web: CI de TypeScript (deploy lo maneja Vercel via git)
 # ============================================================
 #
-# COMO FUNCIONA:
-#   1. Verifica TypeScript
-#   2. Exporta la app como sitio estatico con expo export --platform web
-#   3. Construye la estructura .vercel/output/ manualmente (sin vercel build)
-#   4. Despliega en Vercel via CLI con --prebuilt (produccion o preview)
+# FLUJO:
+#   1. En cada push a main/develop: verificar TypeScript
+#   2. Vercel recibe el webhook de GitHub y hace el build/deploy
+#      automaticamente usando el buildCommand de vercel.json:
+#      "node scripts/patch-reanimated.js && npx expo export --platform web"
 #
-# Por que no usamos "vercel build":
-#   vercel build re-ejecuta el buildCommand de vercel.json, lo que produce
-#   un segundo bundle que NO tiene EXPO_METRO_PLATFORM_WEB=1 y rompe el
-#   stub de reanimated. En cambio, construimos el dist/ correcto en el
-#   paso 6 y empaquetamos el .vercel/output/ nosotros mismos.
-#
-# SECRETOS NECESARIOS en GitHub:
-#   VERCEL_TOKEN        -> Token de Vercel
-#   VERCEL_ORG_ID       -> ID de la org
-#   VERCEL_PROJECT_ID   -> ID del proyecto
-#   API_GATEWAY_URL     -> URL del API Gateway en Cloud Run
+# El proyecto Vercel esta configurado con rootDirectory=domilink-mobile,
+# framework=null, outputDirectory=dist.
+# npm ci ejecuta postinstall que parchea reanimated antes del build.
 # ============================================================
 
-name: Web - Build y Deploy en Vercel
+name: Web - CI TypeScript
 
 on:
   push:
@@ -38,157 +30,47 @@ env:
   NODE_VERSION: '18'
 
 jobs:
-  # ============================================================
-  # JOB UNICO: TypeScript + Build + Deploy en un solo paso
-  # ============================================================
-  build-y-deploy:
-    name: "Build y Deploy Web en Vercel"
+  typecheck:
+    name: "Verificar TypeScript"
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: domilink-mobile
 
     steps:
-      - name: "1. Descargar codigo"
+      - name: "Descargar codigo"
         uses: actions/checkout@v4
 
-      - name: "2. Configurar Node.js 18 con cache npm"
+      - name: "Configurar Node.js ${{ env.NODE_VERSION }}"
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: domilink-mobile/package-lock.json
 
-      - name: "3. Instalar dependencias"
+      - name: "Instalar dependencias (con postinstall que parchea reanimated)"
         run: npm ci
 
-      - name: "4. Verificar tipos con TypeScript"
+      - name: "Verificar tipos TypeScript"
         run: npx tsc --noEmit
 
-      - name: "5. Inyectar URL del API Gateway"
-        run: |
-          API_URL="${{ secrets.API_GATEWAY_URL }}"
-          if [ -z "$API_URL" ]; then
-            API_URL="https://domilink-api-gateway-755906643293.us-central1.run.app"
-            echo "::warning::API_GATEWAY_URL no configurado. Usando URL de Cloud Run directamente."
-          fi
-          echo "EXPO_PUBLIC_API_URL=$API_URL" > .env
-          echo "EXPO_PUBLIC_APP_ENV=production" >> .env
-          echo "API configurado: $API_URL"
-
-      - name: "6. Build Expo Web (sitio estatico)"
+      - name: "Verificar build web"
         run: npx expo export --platform web --output-dir dist --clear
         env:
           CI: true
           EXPO_METRO_PLATFORM_WEB: "1"
-          EXPO_PUBLIC_API_URL: ${{ secrets.API_GATEWAY_URL }}
           EXPO_PUBLIC_APP_ENV: production
 
-      - name: "7. Verificar que el build genero archivos"
+      - name: "Confirmar bundle sin ESM"
         run: |
-          if [ ! -f "dist/index.html" ]; then
-            echo "::error::El build fallo: dist/index.html no existe"
+          BUNDLE=$(ls dist/_expo/static/js/web/AppEntry-*.js 2>/dev/null | head -1)
+          if [ -z "$BUNDLE" ]; then
+            echo "::error::No se genero el bundle de AppEntry"
             exit 1
           fi
-          FILE_COUNT=$(find dist -type f | wc -l)
-          DIST_SIZE=$(du -sh dist/ | cut -f1)
-          echo "Build exitoso: $FILE_COUNT archivos, $DIST_SIZE total"
-
-      - name: "8. Construir estructura .vercel/output/ para deploy prebuilt"
-        if: github.event_name == 'push'
-        run: |
-          # Vercel espera .vercel/output/config.json + .vercel/output/static/
-          # para sitios estaticos. Esto evita que "vercel build" re-ejecute
-          # el buildCommand y produzca un bundle incorrecto.
-          mkdir -p .vercel/output/static
-
-          # Copiar todo el dist/ a static/
-          cp -r dist/. .vercel/output/static/
-
-          # config.json: declara que es un sitio estatico con las rewrites
-          # y headers definidos en vercel.json.
-          cat > .vercel/output/config.json << 'EOF'
-          {
-            "version": 3,
-            "routes": [
-              {
-                "src": "/api/(.*)",
-                "dest": "https://domilink-api-gateway-755906643293.us-central1.run.app/api/$1",
-                "headers": {
-                  "Access-Control-Allow-Origin": "https://domilink-mobile.vercel.app",
-                  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS,PATCH",
-                  "Access-Control-Allow-Headers": "Content-Type,Authorization,X-User-Id,X-User-Role,X-User-Email,X-Company-Id,X-Courier-Id",
-                  "Access-Control-Max-Age": "3600"
-                }
-              },
-              {
-                "src": "/_expo/static/(.*)",
-                "headers": { "Cache-Control": "public, max-age=31536000, immutable" },
-                "continue": true
-              },
-              {
-                "src": "/assets/(.*)",
-                "headers": { "Cache-Control": "public, max-age=604800" },
-                "continue": true
-              },
-              {
-                "handle": "filesystem"
-              },
-              {
-                "src": "/((?!_expo|static|favicon.ico|assets|api).*)",
-                "dest": "/index.html"
-              }
-            ]
-          }
-          EOF
-
-          echo "Estructura .vercel/output/ lista:"
-          ls -la .vercel/output/
-          ls -la .vercel/output/static/ | head -20
-
-      - name: "9. Instalar Vercel CLI"
-        if: github.event_name == 'push'
-        run: npm install -g vercel@39
-        working-directory: .
-
-      - name: "10. Deploy en Vercel (--prebuilt)"
-        if: github.event_name == 'push'
-        id: deploy
-        run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            PROD_FLAG="--prod"
-            echo "Desplegando en PRODUCCION..."
-          else
-            PROD_FLAG=""
-            echo "Desplegando PREVIEW..."
+          if grep -qP "^export\s+(default|const|function|class|\*|\{)" "$BUNDLE"; then
+            echo "::error::El bundle contiene export ESM — el parche de reanimated fallo"
+            exit 1
           fi
-
-          # Vincular proyecto (sin descargar env vars que sobreescriban .env)
-          vercel link \
-            --yes \
-            --token="${{ secrets.VERCEL_TOKEN }}"
-
-          # Deploy directo desde .vercel/output/ (prebuilt)
-          DEPLOY_OUTPUT=$(vercel deploy \
-            --prebuilt \
-            $PROD_FLAG \
-            --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
-
-          echo "$DEPLOY_OUTPUT"
-
-          DEPLOY_URL=$(echo "$DEPLOY_OUTPUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)
-          echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
-          echo "Deployed to: $DEPLOY_URL"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: "11. Publicar resultado"
-        if: github.event_name == 'push'
-        run: |
-          echo "## Deploy Web - DomiLink" >> $GITHUB_STEP_SUMMARY
-          echo "- Plataforma: Vercel (Hobby - Gratuito)" >> $GITHUB_STEP_SUMMARY
-          echo "- URL: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Rama: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        working-directory: .
+          SIZE=$(wc -c < "$BUNDLE")
+          echo "Bundle OK: $(basename $BUNDLE) ($SIZE bytes)"
